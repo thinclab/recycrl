@@ -1,0 +1,5 @@
+repositories:
+  depthai-ros:
+    type: git
+    url: https://github.com/thinclab/depthai-ros.git
+    version: jazzy
