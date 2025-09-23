@@ -9,7 +9,7 @@ This Repository contains the Global Policy, Neural Network, and Reinforcement Le
 [1) Install Anaconda](#1-Install-Anaconda)<br>
 [2) Install ROS2 and create a ROS2 workspace](#2-Install-ROS2-and-create-a-ROS2-workspace)<br>
 [3) Clone `recycrl` into your ROS2 Workspace](#3-Clone-recycrl-into-your-ROS2-Workspace)<br>
-[4) Create a Python environment with Anaconda and the `environment.yml`](#4-Create-a-Python-environment-with-Anaconda-and-the-environmentyml)<br>
+[4) Create a Python environment with the `environment.yml`](#4-Create-a-Python-environment-with-the-environmentyml)<br>
 [5) Build the `recycrl` package](#5-Build-the-recycrl-package)<br>
 [6) Install the Oak-D S2 Camera Driver](#6-Install-the-Oak-D-S2-Camera-Driver)<br>
 [7) Install `kuka_kontrol` and KUKA Dependencies](#7-Install-kuka_kontrol-and-KUKA-Dependencies)<br>
@@ -52,7 +52,7 @@ Use the following commands to clone this package into your `~/recycle_ws/src` fo
 
 ##### Note: Do not use `colcon build` yet.
 
-## 4) Create a Python environment with Anaconda and the `environment.yml`
+## 4) Create a Python environment with the `environment.yml`
 
 At this time, this repository is still in development. There is currently no Python environment provided.
 
@@ -135,7 +135,7 @@ More information on the fork and what it includes can be found in the Setup sect
 ## 7) Install `kuka_kontrol` and KUKA Dependencies
 
 This package also implements the KUKA LBR iisy r3760 Collaborative Robot. This robot needs to be controlled externally with ROS2 for the code in this repository. A custom package for this purpose has been developed and is called `kuka_kontrol`. Installation instructions for this package can be found at the link below.<br>
-[`kuka_kontrol` Installation](https://github.com/thinclab/depthai-ros?tab=readme-ov-file#Installation)
+[`kuka_kontrol` Installation](https://github.com/thinclab/kuka_kontroltab=readme-ov-file#note-the-following-instructions-are-written-for-ubuntu-2404-ros2-jazzy-jalisco)
 
 ## 8) Run `recycrl`
 

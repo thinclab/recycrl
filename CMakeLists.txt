@@ -19,6 +19,7 @@ endif()
 install(
   PROGRAMS
     scripts/recycrl.py
+    scripts/imitate.py
     scripts/cam_align.py
   DESTINATION lib/${PROJECT_NAME}
 )
