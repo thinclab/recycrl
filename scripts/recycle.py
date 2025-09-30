@@ -9,15 +9,15 @@ from time import sleep
 from rclpy.node import Node
 from sensor_msgs.msg import Image
 from lifecycle_msgs.msg import Transition
-from kuka_kontrol.grip_utils import gripper_to_pos, get_current_load
 from lifecycle_msgs.srv import GetState, ChangeState
 from ament_index_python import get_package_share_directory
 from rclpy.logging import set_logger_level, LoggingSeverity
 from message_filters import Subscriber, ApproximateTimeSynchronizer
+from kuka_kontrol.grip_utils import gripper_to_pos, get_current_load
 
 from moveit.core.robot_state import RobotState
 from moveit_configs_utils import MoveItConfigsBuilder
-from moveit.planning import MoveItPy, PlanRequestParameters, MultiPipelinePlanRequestParameters
+from moveit.planning import MoveItPy, PlanRequestParameters
 from moveit.core.kinematic_constraints import construct_link_constraint, construct_joint_constraint
 
 
