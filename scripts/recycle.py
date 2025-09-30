@@ -7,12 +7,12 @@ This script provides the Global Policy for Recycling with the KUKA
 import rclpy
 from time import sleep
 from rclpy.node import Node
-from readchar import readkey
-from sensor_msgs.msg import Image, PointCloud2
+from sensor_msgs.msg import Image
 from lifecycle_msgs.msg import Transition
-from gripper_to_position import gripper_to_pos
+from kuka_kontrol.grip_utils import gripper_to_pos, get_current_load
 from lifecycle_msgs.srv import GetState, ChangeState
 from ament_index_python import get_package_share_directory
+from rclpy.logging import set_logger_level, LoggingSeverity
 from message_filters import Subscriber, ApproximateTimeSynchronizer
 
 from moveit.core.robot_state import RobotState
@@ -30,35 +30,44 @@ def main():
     while not recycle.timed_out:
         # Define variables that are assigned in local blocks
         action = None
-        action_result = None
-        response = None
+        teach_response = None
+        pose_response = None
+
+        # Go to home if not already
+        recycle.go_to(recycle.home)
 
         # If in training, need to allow for optional hand-guiding for teaching
         if recycle.train:
             # Ask the operator if they would like to provide hand-guiding
-            response = recycle.query_operator()
+            teach_response = recycle.query_operator()
 
             # If the operator would like to provide hand-guiding teaching
-            if response == "y":
+            if teach_response == "yes":
                 # Deactivate the KUKA robot's external control to allow operator to hand guide robot
                 recycle.deactivate_external_control()
 
                 # Wait for the operator to move the robot to the desired pose
-                recycle.wait_for_operator()
+                pose_response = recycle.wait_for_operator()
 
                 # Once the operator has provided a pose, reactivate the robot's external control
                 recycle.activate_external_control()
 
+                # Get the current pose of the robot
+                with recycle.planning_scene.read_only() as scene:
+                    pose = scene.current_state.get_pose("gripper_base_link")
+                recycle.get_logger().info(str(pose))
+
             # If the operator would like the Neural Network to provide its own exploratory actions
-            elif response == "n":
+            elif teach_response == "no":
                 # Process the current Image to get the current state of the workspace
                 recycle.process_image()
+                # rclpy.spin_once(recycle)
 
                 # Get the action to execute from the Neural Network based on the current state
                 action = recycle.get_action()
 
                 # Once the action has been received, pass it to the execute() function
-                recycle.execute_action(action)
+                action_result = recycle.execute_action(action)
 
         # If not in training, all actions come from Neural Network
         elif not recycle.train:
@@ -69,10 +78,10 @@ def main():
             action = recycle.get_action()
 
             # Once the action has been received, pass it to the execute() function
-            action_result = recycle.execute_action(action)
+            recycle.execute_action(action)
 
         # If the action was successful or the action was provided by a user
-        if action_result == "success" or response == "y":
+        if recycle.execution_status == "SUCCEEDED" or pose_response == "finished":
             # Grab the item with the gripper, move to the bin, and drop the item
             recycle.grab_and_dispose()
 
@@ -81,10 +90,13 @@ def main():
 
 
 class Recycle(Node):
-    # Add MoveIt Initialization (JK)
     def __init__(self):
         # Register the ROS2 Node
         super().__init__("recycle")
+
+        # Set all loggers to warning or above, but keep this Node at info level
+        # set_logger_level('', LoggingSeverity.WARN)
+        # self.get_logger().set_level(LoggingSeverity.INFO)
 
         # Declare and get the parameter for the Recycle Node
         self.declare_parameters("", [("train", True)])
@@ -122,17 +134,18 @@ class Recycle(Node):
         self.pc_sub = self.create_subscription(PointCloud2, "/add_topc", self.pc_callback, 1)
         """
 
-        # Define variables to hold the most recent rgb and depth images
+        # Define global variables
         self.rgb = None
         self.depth = None
+        self.execution_status = None
+
+        self.executed = False
+        self.timed_out = False
+
         """
         # Define a variable to hold the most recent PointCloud
         self.pointcloud
         """
-
-        # Define boolean variables for logic and execution
-        self.timed_out = False
-        self.executed = False
 
         # Define pre-set positions for KUKA
         self.home = self.construct_joint_position([0.0, -1.74533, 1.5708, 0.0, 1.74533, 0.0])
@@ -165,32 +178,70 @@ class Recycle(Node):
     """
 
     def trajectory_callback(self, msg):
-        self.get_logger().info(str(msg))
+        # Assign the message to the global variable
+        self.execution_status = msg.status
+
         # Set True to exit the while loop in the execute_action() function
         self.executed = True
 
     def process_image(self):
-        # Spin the Node to process the most recent image
-        rclpy.spin_once(self)
+        # Check that the camera is publishing, and notify the user if it is not
+        while not self.get_publishers_info_by_topic("/oak/rgb/image_raw"):
+            self.get_logger().error("Camera is inactive")
+            sleep(5.0)
+
+        # Spin until the messages are received
+        while not self.rgb and not self.depth:
+            rclpy.spin_once(self)
 
     # Add API call to Neural Net and revise variable assignment (if necessary now) (JK)
     def get_action(self):
+        # Define variable to be assigned in loops
         output = None
-        if self.train:
-            NeuralNet(image_input, goal_pose, reward)
-        elif not self.train:
-            neural_net_output = NeuralNet(image_input)
 
-        # Define the action variable as Revision message
-        action = Revision()
-        action.no_op = True
-        action.pose.position.x = neural_net_output
-        action.pose.position.y = neural_net_output
-        action.pose.position.z = neural_net_output
-        action.pose.orientation.w = neural_net_output
-        action.pose.orientation.x = neural_net_output
-        action.pose.orientation.y = neural_net_output
-        action.pose.orientation.z = neural_net_output
+        # If rgb and depth variable are empty, notify the user that the camera is inactive
+        if not self.rgb or not self.depth:
+            self.get_logger().warn("Camera is inactive, providing No-op action")
+            return "No-op"
+
+        # if self.train:
+        #     NeuralNet(image_input, goal_pose, reward)
+        # elif not self.train:
+        #     neural_net_output = NeuralNet(image_input)
+
+        # # After passing the image to the neural net, reset the rgb and depth variables
+        # self.rgb = None
+        # self.depth = None
+
+        # # Define the action variable as Revision message
+        # action = Revision()
+        # action.no_op = True
+        # action.pose.position.x = neural_net_output
+        # action.pose.position.y = neural_net_output
+        # action.pose.position.z = neural_net_output
+        # action.pose.orientation.w = neural_net_output
+        # action.pose.orientation.x = neural_net_output
+        # action.pose.orientation.y = neural_net_output
+        # action.pose.orientation.z = neural_net_output
+
+        # action.pose.position.x = neural_net_output
+        # action.pose.position.y = neural_net_output
+        # action.pose.position.z = neural_net_output
+        # action.pose.orientation.w = neural_net_output
+        # action.pose.orientation.x = neural_net_output
+        # action.pose.orientation.y = neural_net_output
+        # action.pose.orientation.z = neural_net_output
+
+        neural_net_output = [
+            0.3029718845865429,
+            -0.0293896569710944,
+            0.9429706111948394,
+            -0.03278797900140336,
+            0.016672964307594622,
+            -0.1233876877720587,
+            0.9916765799394811,
+        ]
+
         return neural_net_output
 
     def execute_action(self, action):
@@ -198,12 +249,20 @@ class Recycle(Node):
         if action == "No-op":
             # Pause momentarily, and then return
             sleep(1.0)
+            self.get_logger().info("No-op executed")
             return
 
         # If the action is a motion
-        elif action == "motion":
+        elif action != "No-op":
             # Convert the action and pass it to the go_to() function
-            position = action.conversion
+            position = construct_link_constraint(
+                "gripper_base_link",
+                "world",
+                [action[0], action[1], action[2]],
+                0.0,
+                [action[3], action[4], action[5], action[6]],
+                0.01,
+            )
             self.go_to(position)
 
     # Flush out (JK)
@@ -211,12 +270,14 @@ class Recycle(Node):
         # Define variables
         self.executed = False
 
-        # Set the goal state and plan the motion
+        # Set the start and goal states and plan the motion
+        self.kuka.set_start_state_to_current_state()
         self.kuka.set_goal_state(motion_plan_constraints=[position])
         plan_result = self.kuka.plan(single_plan_parameters=self.plan_parameters)
 
         # Logic for successful planning
         if plan_result:
+            self.get_logger().warn("Plan Result")
             # Convert the trajectory, add it to the list, and execute
             robot_trajectory = plan_result.trajectory
             robot_trajectory_msg = robot_trajectory.get_robot_trajectory_msg()
@@ -228,27 +289,30 @@ class Recycle(Node):
                 while self.trajectory_manager.is_managing_controllers() and not self.executed:
                     sleep(0.05)
             except KeyboardInterrupt:
+                self.get_logger().warn("Stopped Execution")
                 self.trajectory_manager.stop_execution()
 
         # Print error if planning fails
         else:
-            self.logger.error("Planning failed")
+            self.get_logger().error("Planning failed")
 
     # Decide on readkey() vs. input(); include return?; GUI? (JK)
     def query_operator(self):
         # Ask the operator if they would like to provide hand guiding teachings
-        self.get_logger().warn("Provide hand-guided pose?")
-        key = readkey()  # Takes first key input no matter what
-        self.get_logger().warn("You pressed: " + str(key))
-        self.get_logger().warn("Provide hand-guided pose?")
+        # self.get_logger().warn("Provide hand-guided pose?")
+        # key = readkey()  # Takes first key input no matter what
+        # self.get_logger().warn("You pressed: " + str(key))
+        self.get_logger().info("IT WORKS")
+        self.get_logger().warn("Provide hand-guided pose? (yes/no)")
         answer = input()  # Takes key input, but need to press "Enter"
         self.get_logger().warn("You entered: " + str(answer))
-        if answer == "y":
-            self.get_logger().warn("Enter")
 
-        return key, answer
+        # If they do not provide a valid response, try again
+        if answer != "yes" and answer != "no":
+            answer = self.query_operator()
 
-    # Add retry on failure (JK)
+        return answer
+
     def deactivate_external_control(self):
         # Call the Get State Service, spin the Node until a response is received, and define the response
         get_state_future = self.get_state_client.call_async(self.get_state_request)
@@ -271,7 +335,7 @@ class Recycle(Node):
 
                 # Fix the transition (JK)
                 # Define the Change State request
-                self.change_state_request.transition.id = Transition.TRANSITION_ACTIVATE
+                self.change_state_request.transition.id = Transition.TRANSITION_DEACTIVATE
 
                 # Call the Change State Service, spin the Node until a response is received, and define the response
                 change_state_future = self.change_state_client.call_async(self.change_state_request)
@@ -284,9 +348,10 @@ class Recycle(Node):
                     if change_state_response.success:
                         self.get_logger().info("Deactivation was successful, proceed to hand-guiding")
 
-                    # If the Change State Service request completed, but did not deactivate the robot, notify the user
+                    # If the Change State Service request completed, but did not deactivate the robot, notify the user and retry
                     else:
-                        self.get_logger().info("Transition request sent successfully, but transition failed")
+                        self.get_logger().info("Transition request sent successfully, but transition failed\nRetrying now")
+                        self.deactivate_external_control()
 
                 # If the Change State Service request failed, notify the user
                 else:
@@ -296,7 +361,6 @@ class Recycle(Node):
         else:
             self.get_logger().error("Request for Get State Service failed")
 
-    # Add retry on failure (JK)
     def activate_external_control(self):
         # Call the Get State Service, spin the Node until a response is received, and define the response
         get_state_future = self.get_state_client.call_async(self.get_state_request)
@@ -330,9 +394,10 @@ class Recycle(Node):
                     if change_state_response.success:
                         self.get_logger().info("Activation was successful")
 
-                    # If the Change State Service request completed, but did not activate the robot, notify the user
+                    # If the Change State Service request completed, but did not activate the robot, notify the user and retry
                     else:
-                        self.get_logger().info("Transition request sent successfully, but transition failed")
+                        self.get_logger().info("Transition request sent successfully, but transition failed\nRetrying now")
+                        self.activate_external_control()
 
                 # If the Change State Service request failed, notify the user
                 else:
@@ -342,48 +407,47 @@ class Recycle(Node):
         else:
             self.get_logger().error("Request for Get State Service failed")
 
-    #  Flush out; possibly add GUI for options(JK)
+    #  GUI?(JK)
     def wait_for_operator(self):
         # Prompt the user to move the robot, and ask them to notify the machine when complete
-        self.get_logger().warn("Provide pose for training, type 'y' and then 'Enter' when done")
+        self.get_logger().warn("Provide pose for training, type 'finished' when done")
         answer = input()
 
         # If the user indicates a hand-guided pose has been provided
-        if answer == "y":
-            # Get the current pose of the robot
-            robot_state = get_state()
-
+        if answer == "finished":
             # Pass the pose and corresponding state as training data to the Neural Network
-            NeuralNet(self.rgb, self.depth, robot_state)
+            # NeuralNet(self.rgb, self.depth, robot_state)
             self.get_logger().info("Hand-guided pose received and passed to Neural Net")
 
         # If the user does not provide confirmation of hand-guided pose
-        elif answer != "y":
-            # Get the current pose of the robot
-            robot_state = get_state()
+        elif answer != "finished":
+            self.wait_for_operator()
 
-            # Pass the pose and corresponding state as training data to the Neural Network
-            NeuralNet(self.rgb, self.depth, robot_state)
-            self.get_logger().info("Hand-guided pose received and passed to Neural Net")
+        return answer
 
     def grab_and_dispose(self):
         # Close the gripper
-        grab_result = gripper_to_pos(55)
+        closed = gripper_to_pos(55)
 
-        # If the grab action was successful
-        if grab_result:
+        # If the gripper closed
+        if closed:
             # Lift the object slightly
             self.lift()
 
-            # Go to the bin
-            self.go_to(self.bin)
+            # Check that the lift action succeeded
+            if self.execution_status == "SUCCEEDED":
+                # Go to the bin
+                self.go_to(self.bin)
 
-            # Open the gripper to drop the item
-            release_result = gripper_to_pos(25)
+                # Open the gripper to drop the item
+                release_result = gripper_to_pos(25)
 
-        # If the grab action was unsuccessful, notify the user
-        elif not grab_result:
-            self.get_logger().warn("Close Gripper Action Failed")
+            elif self.execution_status != "SUCCEEDED":
+                self.get_logger().error("Unable to lift gripper, trying again")
+
+        # If the gripper did not close, notify the user
+        elif not closed:
+            self.get_logger().warn("Failed to close gripper, check that gripper is powered\nGoing back home")
 
     def construct_joint_position(self, angles):
         # Take the passed angles and assign them as a dictionary
@@ -404,6 +468,7 @@ class Recycle(Node):
 
         return joint_position
 
+    # Need to add invalid position
     def lift(self, height=0.12):
         # Get the current pose of the robot
         with self.planning_scene.read_only() as scene:
@@ -424,6 +489,24 @@ class Recycle(Node):
 
         # Pass the lift position to the move function
         self.go_to(lift_position)
+
+    #
+    def get_reward(self):
+        # Define reward variable to be assigned in local loops
+        reward = None
+
+        # Get the current load (mA) of the gripper after lifting
+        current_load = get_current_load()
+
+        # If the current load is greater than 200 mA, the gripper has something in its grasp
+        if current_load > 200:
+            reward = 1
+
+        # If the current load is less than 200 mA, the gripper has nothing in its grasp
+        elif current_load < 200:
+            reward = 0
+
+        return reward
 
 
 if __name__ == "__main__":
