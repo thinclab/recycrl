@@ -1,1 +1,6 @@
+**.png
+**.jpg
+**/runs/**
+**/dataset/**
 **/__pycache__/
+**/weights/**.pt

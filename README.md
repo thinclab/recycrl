@@ -163,4 +163,25 @@ If it is successful, you should see a message like this,
 
     [component_container-3] [INFO] [1742215114.606896223] [oak]: Camera ready!
 
+### Training and Using a YOLO Model
+
+This package contains a `/yolo` folder with a number of Python scripts for training and using a YOLO model. In order to run these scripts, you need to have installed the `yolo` Anaconda environment (see [#4](#4-Create-a-Python-environment-with-the-environmentyml)). Before running any of the scripts, make sure you have activated the `yolo` environment and that you are within the `~/recycle_ws/src/recycrl/yolo` directory. Use the following commands to do so.
+
+    cd ~/recycle_ws/src/recycrl/yolo
+    conda activate yolo
+
+* `check.py`: Executing this script checks that Ultralytics is installed correctly and that a GPU is available. The results are displayed for these checks.
+
+* `begin_train.py`: This script trains a YOLO model from scratch using an annotated image dataset. By default, this script will use the dataset located in the `~/recycle_ws/src/recycrl/yolo/dataset` folder and train a medium-size YOLO v11 Instance Segmentation model (yolo11m-seg.yaml). You can find out more about YOLO model types [here](https://docs.ultralytics.com/models/yolo11/#supported-tasks-and-modes). For ease of use, it is best to copy the dataset you wish to train into the default location, but the dataset and YOLO model can be specified manually with arguments; use the following command for more information.
+
+      python3 begin_train.py -h
+
+* `resume_train.py`: This script continues the training on a YOLO model and its weights. By default, this script will use the dataset located in the `~/recycle_ws/src/recycrl/yolo/dataset` folder and continue the training on the weights located at `~/recycle_ws/src/recycrl/yolo/weights/best.pt`. Like the script above, the dataset and YOLO model weights can be specified manually with arguments; use the following command for more information.
+
+      python3 resume_train.py -h
+
+* `predict.py`: This script loads a trained YOLO model with weights and predicts the instances within an image. By default, this script will use the weights located at `~/recycle_ws/src/recycrl/yolo/weights/best.pt` and load a random image from the training set located at `~/recycle_ws/src/recycrl/yolo/dataset/train/images`. The YOLO model weights and image path can be specified manually with arguments; use the following command for more information.
+
+      python3 predict.py -h
+
 ##### Note: At this point the ROS2 Nodes are still in development
