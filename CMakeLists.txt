@@ -30,6 +30,9 @@ install(
     scripts/cam_align.py
     scripts/detect_service.py
     scripts/pnp.py
+    scripts/image_capture.py
+    scripts/yolo_service.py
+    scripts/yolo_client.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

@@ -8,12 +8,15 @@ This Repository contains the Global Policy, Neural Network, and Reinforcement Le
 #### Table of Contents
 [1) Install Anaconda](#1-Install-Anaconda)<br>
 [2) Install ROS2 and create a ROS2 workspace](#2-Install-ROS2-and-create-a-ROS2-workspace)<br>
-[3) Clone `recycrl` into your ROS2 Workspace](#3-Clone-recycrl-into-your-ROS2-Workspace)<br>
-[4) Create a Python environment with the `environment.yml`](#4-Create-a-Python-environment-with-the-environmentyml)<br>
+[3) Clone `recycrl` into your ROS2 workspace](#3-Clone-recycrl-into-your-ROS2-workspace)<br>
+[4) Create Python environment(s)](#4-Create-Python-environments)<br>
 [5) Build the `recycrl` package](#5-Build-the-recycrl-package)<br>
-[6) Install the Oak-D S2 Camera Driver](#6-Install-the-Oak-D-S2-Camera-Driver)<br>
-[7) Install `kuka_kontrol` and KUKA Dependencies](#7-Install-kuka_kontrol-and-KUKA-Dependencies)<br>
-[8) Run `recycrl`](#8-Run-recycrl)<br>
+[6) Install the Oak-D S2 camera driver](#6-Install-the-Oak-D-S2-camera-driver)<br>
+[7) Install `kuka_kontrol` and KUKA dependencies](#7-Install-kuka_kontrol-and-KUKA-dependencies)<br>
+[8) How to use `recycrl`](#8-How-to-use-recycrl)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;[Set up the KUKA for real-world execution](#Set-up-the-KUKA-for-real-world-execution)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;[Run the Oak-D S2 camera](#Run-the-Oak-D-S2-camera)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;[Train and use a YOLO model](#Train-and-use-a-YOLO-model)<br>
 
 ##### Note: The following instructions are written for Ubuntu 24.04, ROS2 Jazzy Jalisco
 
@@ -41,7 +44,7 @@ The instructions at the link below describe how to install ROS2 Jazzy Jalisco on
 After installing ROS2, go to the following link to create a ROS2 Workspace. It is a good idea to have a dedicated workspace for this package that you can build independently within the Anaconda environment. Conventionally this workspace is named `ros2_ws`, but you can name this workspace whatever you like. In this tutorial, we will use `recycle_ws`, so make sure to change certain commands accordingly.<br>
 [ROS2 Workspace](https://docs.ros.org/en/jazzy/Tutorials/Beginner-Client-Libraries/Creating-A-Workspace/Creating-A-Workspace.html)
 
-## 3) Clone `recycrl` into your ROS2 Workspace
+## 3) Clone `recycrl` into your ROS2 workspace
 
 Use the following commands to clone this package into your `~/recycle_ws/src` folder and resolve dependencies.
 
@@ -52,47 +55,47 @@ Use the following commands to clone this package into your `~/recycle_ws/src` fo
 
 ##### Note: Do not use `colcon build` yet.
 
-## 4) Create a Python environment with the `environment.yml`
+## 4) Create Python environment(s)
 
-At this time, this repository is still in development. There is currently no Python environment provided.
+After you have cloned the `recycrl` package, use the following commands to go to the package's `/anaconda_env` directory and create the required Python environment specified in the `recycrl_environment.yml`. Before doing so, feel free to change the name of environment at the top of the `recycrl_environment.yml` file.
 
-<!-- After you have cloned the `recycrl` package, use the following commands to go to the package's `/anaconda_env` directory and create the required Python environment specified in the `environment.yml`. Before doing so, feel free to change the name of environment at the top of the `environment.yml` file.
+    cd ~/recycle_ws/src/recycrl/anaconda_env
+    conda env create -f recycrl_environment.yml
 
-cd ~/recycle_ws/src/recycrl/anaconda_env
-conda env create -f environment.yml
+After installation, you can use the next command to activate the environment. Replace `recycrl` in the next couple of commands if you changed your environment name.
 
-Use the next command to activate the environment after installation. Replace `ros2_env` in the next couple of commands if you changed your environment name.
+    conda activate recycrl
 
-conda activate ros2_env
+Even though the environment contains all the necessary Python libraries, `numpy` needs to be downgraded. After activating the environment, use the following command to downgrade `numpy`.
+
+    pip install "numpy<2"
 
 Make sure to deactivate your Python environment whenever necessary using the following command.
 
-conda deactivate
+    conda deactivate
 
-You can also add alias scripts into your `~/.bashrc` to easily activate and deactivate your environment. Use the commands below to do this. You can now use `py` and `de` in your terminal to activate or deactivate the environment, respectively.
+You can also add alias scripts into your `~/.bashrc` to easily activate and deactivate your environment. Use the commands below to do this. You can now use `re` and `de` in your terminal to activate or deactivate the environment, respectively.
 
-echo 'alias py="conda activate ros2_env"' >> ~/.bashrc
-echo 'alias de="conda deactivate"' >> ~/.bashrc
-source ~/.bashrc
+    echo 'alias re="conda activate recycrl"' >> ~/.bashrc
+    echo 'alias de="conda deactivate"' >> ~/.bashrc
+    source ~/.bashrc
 
-After setting up your environment, use the following commands to add the `activate_env_vars.sh` and `deactivate_env_vars.sh` scripts to your Anaconda environment's `/activate.d` and `/deactivate.d` folders. These scripts execute automatically when the environment is activated or deactivated. These scripts set the `$LD_LIBRARY_PATH` so that the Anaconda environment's library versions are prioritized in the terminal session when the Anaconda environment is activated. This helps avoid issues when building and executing the scripts.
+<!-- After setting up your environment, use the following commands to add the `activate_env_vars.sh` and `deactivate_env_vars.sh` scripts to your Anaconda environment's `/activate.d` and `/deactivate.d` folders. These scripts execute automatically when the environment is activated or deactivated. These scripts set the `$LD_LIBRARY_PATH` so that the Anaconda environment's library versions are prioritized in the terminal session when the Anaconda environment is activated. This helps avoid issues when building and executing the scripts.
 
 cd ~/recycle_ws/src/recycrl/anaconda_env
 mv activate_env_vars.sh ~/anaconda3/envs/ros2_env/etc/conda/activate.d/
 mv deactivate_env_vars.sh ~/anaconda3/envs/ros2_env/etc/conda/deactivate.d/ -->
 
+In addition to the `recycrl` environment, this package provides an optional environment to execute the scripts within the `/yolo` folder. For more information on the purpose of this folder go to the [Train and Use a YOLO Model](#Train-and-Use-a-YOLO-Model) section. The installation for this environment is the same as that for the `recycrl` environment, and can be done by going to the `/anaconda_env` directory and using the installation command.
+
+    cd ~/recycle_ws/src/recycrl/anaconda_env
+    conda env create -f yolo_environment.yml
+
+The activation and deactivation commands for this environment are the same, just make sure to replace `recycrl` with `yolo` or the corresponding names you have given to these environments whenever necessary. Feel free to add alias commands for this environment to your `~/.bashrc`.
+
 ## 5) Build the `recycrl` package
 
-With the previous steps complete, the package is ready to be built. Use the following commands to go to your workspace and build the package.
-
-    cd ~/recycle_ws
-    colcon build
-
-Feel free to replace the `colcon build` above with the following to avoid compiling when changes are made to any Python files.
-
-    colcon build --symlink-install
-
-<!-- With the previous steps complete, the package is ready to be built. Use the following commands to go to your workspace, activate your environment, and build the package. It is important to activate your environment before building the first time.
+With the previous steps complete, the package is ready to be built. Use the following commands to go to your workspace, activate your environment, and build the package. It is recommended to activate your environment before building the first time.
 
 cd ~/recycle_ws
 conda activate ros2_env
@@ -102,7 +105,7 @@ Feel free to replace the `colcon build` above with the following to avoid compil
 
 colcon build --symlink-install
 
-If you accidentally built the package without first activating the environment, you will get this error when you build inside the environment thereafter:
+If you built the package without first activating the environment, you could get this error when you build inside the environment thereafter:
 
 /usr/bin/cmake: /home/psuresh/anaconda3/envs/ros2_env/lib/libcurl.so.4: no version information available (required by /usr/bin/cmake)
 
@@ -113,14 +116,14 @@ rm -rf build install
 conda activate ros2_env
 colcon build
 
-After the initial build in the environment, you can rebuild this package inside or outside of your Python environment without issue.  -->
+After the initial build within the environment, you can rebuild this package inside or outside of your Python environment without issue.
 
 Make sure to source your workspace. You can add the following lines to your `~/.bashrc` with the commands below so that this happens automatically.
 
     echo "source ~/recycle_ws/install/setup.bash" >> ~/.bashrc
     echo "source ~/recycle_ws/install/local_setup.bash" >> ~/.bashrc
 
-## 6) Install the Oak-D S2 Camera Driver
+## 6) Install the Oak-D S2 camera driver
 
 Currently, this package implements the Oak-D S2 Camera. The DepthAI-ROS GitHub Repository and Documentation can be found at the links below. <br>
 [Depth-AI ROS GitHub](https://github.com/luxonis/depthai-ros.git)<br>
@@ -132,14 +135,15 @@ You can download and install our fork of this driver to emulate our setup. The f
 More information on the fork and what it includes can be found in the Setup section.<br>
 [Depth-AI ROS Fork Setup](https://github.com/thinclab/depthai-ros?tab=readme-ov-file#Setup)
 
-## 7) Install `kuka_kontrol` and KUKA Dependencies
+## 7) Install `kuka_kontrol` and KUKA dependencies
 
 This package also implements the KUKA LBR iisy r3760 Collaborative Robot. This robot needs to be controlled externally with ROS2 for the code in this repository. A custom package for this purpose has been developed and is called `kuka_kontrol`. Installation instructions for this package can be found at the link below.<br>
 [`kuka_kontrol` Installation](https://github.com/thinclab/kuka_kontroltab=readme-ov-file#note-the-following-instructions-are-written-for-ubuntu-2404-ros2-jazzy-jalisco)
 
-## 8) Run `recycrl`
+## 8) How to Use `recycrl`
 
-After all of the previous steps have been completed, the package is ready to be utilized. First, the KUKA robot needs to be turned on and set up to allow for external execution. Startup the robot by clicking the power button on the KR C5 micro controller and sign in as an Admin to the SmartPad when it has finished loading. After signing in, make sure the robot is in AUT mode (check top center, There are two modes T1 and AUT) on the SmartPad. Then click on the user icon on the top right and click "Release SPOC" to allow other hosts to control the robot.
+### Set up the KUKA for real-world execution
+Startup the robot by clicking the power button on the KR C5 micro controller and sign in as an Admin to the SmartPad when it has finished loading. After signing in, make sure the robot is in AUT mode (check top center, There are two modes T1 and AUT) on the SmartPad. Then click on the user icon on the top right and click "Release SPOC" to allow other hosts to control the robot.
 
 If the robot is setup correctly according to the steps above, you can now connect to the robot through ROS2. First, run the robot launch below which starts the required nodes for real-world KUKA operation.
 
@@ -155,7 +159,9 @@ After running the "configure" command, you should see a message that says "Trans
 If you are having trouble connecting to the robot, please see the `kuka_kontrol` repository for more detailed instructions.<br>
 [`kuka_kontrol` Execution](https://github.com/thinclab/kuka_kontrol?tab=readme-ov-file#real-execution)
 
-Then, start the Oak-D S2 Camera driver with the following launch command.
+### Run the Oak-D S2 camera
+
+The Oak-D S2 driver can be executed with the following launch command.
 
     ros2 launch depthai_ros_driver camera.launch.py
 
@@ -163,16 +169,19 @@ If it is successful, you should see a message like this,
 
     [component_container-3] [INFO] [1742215114.606896223] [oak]: Camera ready!
 
-### Training and Using a YOLO Model
+### Train and use a YOLO model
 
-This package contains a `/yolo` folder with a number of Python scripts for training and using a YOLO model. In order to run these scripts, you need to have installed the `yolo` Anaconda environment (see [#4](#4-Create-a-Python-environment-with-the-environmentyml)). Before running any of the scripts, make sure you have activated the `yolo` environment and that you are within the `~/recycle_ws/src/recycrl/yolo` directory. Use the following commands to do so.
+This package contains a `/yolo` folder with a number of Python scripts for training and using a YOLO model. The `/yolo` folder also contains the `/dataset` and `/weights` folders which are the default search locations for the annotated training dataset and weights `.pt` files, respectively. It is recommended to use RoboFlow to annotate images and export them in the proper format.<br>[Annotating Images in RoboFlow](https://docs.roboflow.com/annotate/use-roboflow-annotate)<br>[Exporting a Dataset from RoboFlow](https://docs.roboflow.com/datasets/dataset-versions/exporting-data)
+
+In order to run the scripts within the `/yolo` folder, you need to have installed the `yolo` Anaconda environment (see [#4](#4-Create-a-Python-environment-with-the-environmentyml)). Before running any of the scripts, make sure you have activated the `yolo` environment and that you are within the `~/recycle_ws/src/recycrl/yolo` directory. These two things can be done with the following commands.
 
     cd ~/recycle_ws/src/recycrl/yolo
     conda activate yolo
 
+#### Script Descriptions
 * `check.py`: Executing this script checks that Ultralytics is installed correctly and that a GPU is available. The results are displayed for these checks.
 
-* `begin_train.py`: This script trains a YOLO model from scratch using an annotated image dataset. By default, this script will use the dataset located in the `~/recycle_ws/src/recycrl/yolo/dataset` folder and train a medium-size YOLO v11 Instance Segmentation model (yolo11m-seg.yaml). You can find out more about YOLO model types [here](https://docs.ultralytics.com/models/yolo11/#supported-tasks-and-modes). For ease of use, it is best to copy the dataset you wish to train into the default location, but the dataset and YOLO model can be specified manually with arguments; use the following command for more information.
+* `begin_train.py`: This script trains a YOLO model from scratch using an annotated image dataset. By default, this script will use the dataset located in the `~/recycle_ws/src/recycrl/yolo/dataset` folder and train a medium-size YOLO v11 Instance Segmentation model (yolo11m-seg.yaml). You can find out more about YOLO model types [here](https://docs.ultralytics.com/models/yolo11/#supported-tasks-and-modes). Please note that the resulting weights file will be located somewhere within the newly generated `runs` folder. When the training has concluded, the weights path will be printed to the terminal. For ease of use, it is best to copy the dataset you wish to train into the default location, but the dataset and YOLO model can be specified manually with arguments; use the following command for more information.
 
       python3 begin_train.py -h
 
@@ -185,3 +194,5 @@ This package contains a `/yolo` folder with a number of Python scripts for train
       python3 predict.py -h
 
 ##### Note: At this point the ROS2 Nodes are still in development
+
+https://universe.roboflow.com/lukas-rois-xwzlr/bottles-fbu6t

@@ -23,7 +23,7 @@ parser.add_argument("-model", dest="model", default="yolo11m-seg.yaml", help="De
 # Parse and assign arguments
 args = parser.parse_args()
 dataset = args.dataset
-model_type = args.model_type
+model_type = args.model
 
 # Load the model
 model = YOLO(model_type)
