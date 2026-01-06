@@ -22,7 +22,7 @@ class YOLOClient(Node):
         self.once = once
 
         # Create a client to the YOLO Service
-        self.client = self.create_client(Poses, "/get_object_locations")
+        self.client = self.create_client(Poses, "/get_poses")
 
         # Wait until the service is ready
         while not self.client.wait_for_service(4.0):
@@ -65,7 +65,7 @@ class YOLOClient(Node):
                     roll, pitch, yaw = euler_from_quaternion(
                         [pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w]
                     )
-                    print(f"Orientation:  Roll: {roll}  Pitch: {round(degrees(pitch), 3)}  Yaw: {round(degrees(yaw), 3)}")
+                    print(f"Orientation:  Roll: 0.0  Pitch: {round(degrees(pitch), 3)}  Yaw: {round(degrees(yaw), 3)}")
                     print("")
 
             # If no objects were detected, notify the user

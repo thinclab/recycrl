@@ -120,12 +120,12 @@ class ImageCapture(Node):
 
     def reset_state(self):
         # Block the program until the user has to notified that the workspace has been reset
-        self.get_logger().info("Finished resetting workspace? (yes)")
+        self.get_logger().info("Finished resetting workspace? ('Enter')")
         answer = input()
 
-        # If they do not say "yes", make sure the user is sure
-        while answer != "yes":
-            self.get_logger().warn("You typed '" + str(answer) + "', type 'yes' to capture the current workspace and continue")
+        # If they do not click "Enter", make sure the user is sure
+        while answer != "":
+            self.get_logger().warn("You typed '" + str(answer) + "', click 'Enter' to capture the current workspace and continue")
             answer = input()
 
 
