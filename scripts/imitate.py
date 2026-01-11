@@ -6,7 +6,7 @@ for the corresponding state. The transition and reward is recorded and all data 
 """
 
 import os
-import rclpy
+import numpy as np
 from argparse import ArgumentParser
 from recycrl.scripts.recycRL import RecycRL
 
@@ -33,24 +33,26 @@ def main():
     # Expand the user to handle "~"
     buffer_path = os.path.expanduser(buffer_path)
 
-    # Initialize rclpy
-    rclpy.init()
-
     # Try the following
     try:
         # Initialize the Imitate Node
         imitate = RecycRL(buffer_path, state_dim, action_dim)
 
-        # Start the loop, ends after time out reached
+        # Move the robot to the hidden state so that the workspace can be seen clearly
+        imitate.go_to(imitate.hidden)
+
+        # Get the initial poses of the items in the workspace
+        state = imitate.get_workspace_state()
+
+        # Start the loop
         while True:
-            # Move the robot to the hidden state so that the workspace can be seen clearly
-            imitate.go_to(imitate.hidden)
+            # If the workspace is empty
+            if state[-1] == 0:
+                # Wait for the user to arrange items in the workspace
+                imitate.set_workspace_state()
 
-            # Blocking call that asks user to rearrange the items in the workspace
-            imitate.set_workspace_state()
-
-            # Get the poses of the items after the user has rearranged the items
-            state = imitate.get_workspace_state()
+                # Get the poses of the items after the user has rearranged the items
+                state = imitate.get_workspace_state()
 
             # Move the robot to home
             imitate.go_to(imitate.home)
@@ -67,32 +69,38 @@ def main():
             # Get the current state of the robot for the action now that external control is active
             action = imitate.get_robot_state()
 
-            # Get the poses of the items after executing the action
-            next_state = imitate.get_workspace_state()
-
-            # (JK) Which one
-            """
             # After the robot state has been recorded, grab and lift the gripper
             imitate.grab_and_lift()
 
+            # Get the poses of the items after executing the action
+            next_state = imitate.get_workspace_state()
+
             # Get the reward of the action
             reward, done = imitate.get_reward(state[-1], next_state[-1])
-            """
-
-            """
-            # Get reward of action, assume successful grasp, but determine if "done" or not
-            reward, done = imitate.get_reward(state[-1], next_state[-1])
-            """
 
             # Save the state, action, transition, and reward to the replay buffer
             imitate.save_to_buffer(state, action, next_state, reward, done)
 
+            # Assign the next state to the current state for the next iteration, more efficient
+            state = next_state
+
+            # Every 10 new samples added to the buffer
+            if imitate.buffer.size % 10 == 0:
+                # Save the replay buffer
+                np.save(buffer_path, imitate.buffer)
+
     # If there is an exception with the loop, notify the user
     except Exception as e:
+        # Save the replay buffer
+        np.save(buffer_path, imitate.buffer)
+
         print("\nImitate script failed: %r" % (e,))
 
     # If there is a Keyboard Interrupt, gracefully shut down the Node
     except KeyboardInterrupt:
+        # Save the replay buffer
+        np.save(buffer_path, imitate.buffer)
+
         print("\nKeyboard Interrupt, shutting down")
 
 
