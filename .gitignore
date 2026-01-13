@@ -3,4 +3,4 @@
 **/runs/**
 **/dataset/**
 **/__pycache__/
-**/weights/**.pt
+**/**.pt

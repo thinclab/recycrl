@@ -13,7 +13,7 @@ from argparse import ArgumentParser
 dir = getcwd()
 
 # Define arguments
-description = "Begins training on a specified dataset and YOLO model"
+description = "Continues training on a specified dataset and YOLO model"
 parser = ArgumentParser(description=description)
 parser.add_argument(
     "-dataset", dest="dataset", default=f"{dir}/dataset/data.yaml", help="Location of the dataset's data.yaml file"
@@ -21,11 +21,13 @@ parser.add_argument(
 parser.add_argument(
     "-weights", dest="weights", default=f"{dir}/weights/best.pt", help="Location of weights to resume training on"
 )
+parser.add_argument("--validate", dest="validate", action="store_true", help="Whether to validate on separate data")
 
 # Parse and assign arguments
 args = parser.parse_args()
 dataset = args.dataset
 weights = args.weights
+validate = args.validate
 
 # Load the model with the partially trained weights
 model = YOLO(weights)
@@ -33,8 +35,10 @@ model = YOLO(weights)
 # Train the model with the resume argument set to True
 results = model.train(data=dataset, epochs=100, imgsz=640, device="0", batch=8, resume=True)
 
-# Validate on separate data
-metrics = model.val(data=dataset)
+# If the validate flag is set
+if validate:
+    # Validate on separate data
+    metrics = model.val(data=dataset)
 
 # Get the path of export
 path = model.export(format="onnx")

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-Script that begins the training on a specified dataset and YOLO model
+Script that takes a previously trained YOLO model and trains on a new data
 """
 
 from os import getcwd
@@ -13,22 +13,24 @@ from argparse import ArgumentParser
 dir = getcwd()
 
 # Define arguments
-description = "Trains a YOLO model from scratch"
+description = "Finetunes a preexisting YOLO model with new data"
 parser = ArgumentParser(description=description)
 parser.add_argument(
     "-dataset", dest="dataset", default=f"{dir}/dataset/data.yaml", help="Location of the dataset's data.yaml file"
 )
-parser.add_argument("-model", dest="model", default="yolo11m-seg.yaml", help="Define which YOLO model type to train")
+parser.add_argument(
+    "-weights", dest="weights", default=f"{dir}/weights/best.pt", help="Location of weights to resume training on"
+)
 parser.add_argument("--validate", dest="validate", action="store_true", help="Whether to validate on separate data")
 
 # Parse and assign arguments
 args = parser.parse_args()
 dataset = args.dataset
-model_type = args.model
+weights = args.weights
 validate = args.validate
 
 # Load the model
-model = YOLO(model_type)
+model = YOLO(weights)
 
 # Train the model
 results = model.train(data=dataset, epochs=100, imgsz=640, device="0", batch=4, plots=True)
