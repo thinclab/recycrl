@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-This script gives the training sequence for the local grasping policy
+This node takes detected objects from the detection service and disposes them
 """
 
 import rclpy
@@ -15,7 +15,6 @@ from ament_index_python import get_package_share_directory
 from rclpy.logging import set_logger_level, LoggingSeverity
 from kuka_kontrol.grip_utils import gripper_to_pos, get_finger_pos
 from message_filters import Subscriber, ApproximateTimeSynchronizer
-
 
 from moveit.core.robot_state import RobotState
 from moveit_configs_utils import MoveItConfigsBuilder
@@ -110,7 +109,7 @@ class PickandPlace(Node):
         self.bin = self.construct_joint_position([-1.5708, -1.13446, 1.48353, 0.0, 1.22173, -1.5708])
 
         # Create a client to the detection service
-        self.client = self.create_client(Poses, "/get_object_locations")
+        self.client = self.create_client(Poses, "/get_poses")
 
         # Wait until the service is running
         while not self.client.wait_for_service(4.0):

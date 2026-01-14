@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-This script simplifies the process of collecting Image data for training the YOLO model
+This node simplifies the process of collecting Image data for training the YOLO model
 """
 
 import os
@@ -62,6 +62,7 @@ class ImageCapture(Node):
         # Define global variables
         self.data_dir = data_dir
         self.rgb = None
+        self.image_name = None
 
         # If the data directory doesn't exist
         if not os.path.exists(data_dir):
@@ -117,6 +118,9 @@ class ImageCapture(Node):
 
         # Save the image
         cv2.imwrite(f"{self.data_dir}/{self.image_name}.png", cv_image)
+
+        # Print the image number
+        self.get_logger().info(f"Captured {self.image_name}")
 
     def reset_state(self):
         # Block the program until the user has to notified that the workspace has been reset
