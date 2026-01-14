@@ -27,7 +27,7 @@ from moveit.core.kinematic_constraints import construct_joint_constraint, constr
 
 
 class RecycRL(Node):
-    def __init__(self, buffer_path, state_dim=8, action_dim=6):
+    def __init__(self, buffer_path, state_dim=8, action_dim=7):
         # Register the ROS2 Node
         super().__init__("recycrl")
 
@@ -43,19 +43,12 @@ class RecycRL(Node):
 
         # If the replay buffer does not exist, initialize a new ReplayBuffer() Class
         if not os.path.exists(buffer_path):
+            os.makedirs(os.path.dirname(buffer_path), exist_ok=True)
             self.buffer = ReplayBuffer(state_dim, action_dim, max_size=int(1e6))
+
         # If the replay buffer exists, load the Class
         else:
             self.buffer = np.load(buffer_path, allow_pickle=True).item()
-
-        """
-        (JK) See get_robot_state()
-        # Get the GPU if it is available
-        self.processor = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
-        # Define the model and put it on the GPU
-        self.network = NeuralNetwork().to(self.processor)
-        """
 
         # Define the MoveIt Configuration
         moveit_config = (
@@ -110,52 +103,63 @@ class RecycRL(Node):
     def set_workspace_state(self):
         # Block the program until the user has notified that the workspace has been reset
         self.get_logger().info("Robot moved to hidden pose, reset workspace if sort has finished")
-        self.get_logger().warn("Workspace ready? (yes)")
+        self.get_logger().warn("Workspace ready? (Enter)")
         answer = input()
 
-        # If they do not say "yes", make sure the user is sure
-        while answer != "yes":
-            self.get_logger().warn("You typed '" + str(answer) + "', type 'yes' to capture the current workspace and continue")
+        # If they do not click "Enter", notify the user
+        while answer != "":
+            self.get_logger().warn("You typed '" + str(answer) + "', click 'Enter' to capture the current workspace and continue")
             answer = input()
 
-    # (JK) Need to pass one pose and remaining number of items
+    # (JK) Determine which pose to use
     def get_workspace_state(self):
         # Call the get poses service, spin the Node until a response is received, and define the response
         get_poses_future = self.get_poses_client.call_async(self.get_poses_request)
         rclpy.spin_until_future_complete(self, get_poses_future)
         get_state_response = get_poses_future.result()
 
-        # Get the first pose from the response, convert the pose into a list, and round all the values
-        pose = get_state_response.poses[0]
-        pose_list = [
-            pose.position.x,
-            pose.position.y,
-            pose.position.z,
-            pose.orientation.x,
-            pose.orientation.y,
-            pose.orientation.z,
-            pose.orientation.w,
-        ]
-        rounded_pose = [round(x, 4) for x in pose_list]
+        # Check that the service returned at least one pose
+        if get_state_response.poses:
+            # Get the first pose from the response, convert the pose into a list, and round all the values for the state
+            pose = get_state_response.poses[0]
+            state = [
+                pose.position.x,
+                pose.position.y,
+                pose.position.z,
+                pose.orientation.x,
+                pose.orientation.y,
+                pose.orientation.z,
+                pose.orientation.w,
+            ]
+            state = [round(x, 4) for x in state]
 
-        return rounded_pose
+        # Otherwise, return a list with all zeros
+        else:
+            state = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+        # Add the number of items detected to the state representation
+        state.append(len(get_state_response.poses))
+
+        # Print the state
+        self.get_logger().info(f"Current state: x: {state[0]}, y: {state[1]}, z: {state[2]}, items: {state[7]}")
+
+        return state
 
     def set_robot_state(self):
         # Block the program until the user has notified that the  robot state has been set
         self.get_logger().info("Robot moved to Home, provide pose for training")
-        self.get_logger().warn("Finished hand-guiding robot? (yes)")
+        self.get_logger().warn("Finished hand-guiding robot? (Enter)")
         answer = input()
 
-        # If they do not say "yes", notify the user
-        while answer != "yes":
-            self.get_logger().warn("You typed '" + str(answer) + "', type 'yes' if you have provided a hand-guided pose")
+        # If they do not click "Enter", notify the user
+        while answer != "":
+            self.get_logger().warn("You typed '" + str(answer) + "', click 'Enter' if you have provided a hand-guided pose")
             answer = input()
 
-    # (JK) Transformation matrix for rotation?
     def get_robot_state(self):
         # Get the current pose of the robot
         with self.planning_scene.read_only() as scene:
-            pose = scene.current_state.get_pose("gripper_base_link")
+            pose = scene.current_state.get_pose("tcp")
 
         # Convert the Pose message into a list and round all the values in the list to 4 decimals
         pose_list = [
@@ -171,50 +175,6 @@ class RecycRL(Node):
 
         return rounded_pose
 
-    # (JK) Is this necessary? Transformation matrix?
-    def get_action(self, pose):
-        # Convert the workspace state into a list and round all the values in the list to 4 decimals
-        pose_list = [
-            pose.position.x,
-            pose.position.y,
-            pose.position.z,
-            pose.orientation.x,
-            pose.orientation.y,
-            pose.orientation.z,
-            pose.orientation.w,
-        ]
-        rounded_pose = [round(x, 4) for x in pose_list]
-
-        # Convert the pose representation to a tensor
-        pose_tensor = torch.tensor(rounded_pose).to(self.processor)
-
-        # Pass the pose through the neural network and get the output from the GPU
-        output = self.network(pose_tensor).detach().cpu().numpy()
-
-        # Extract and normalize the first column vector of the 6D output orientation
-        b1 = self.normalize(np.array([output[3], output[4], output[5]]))
-
-        # Define the second column vector of the 6D output orientation
-        a2 = np.array([output[6], output[7], output[8]])
-
-        # Calculate an orthogonal vector of a2 to b1 and normalize it
-        b2 = self.normalize(a2 - np.dot(b1, a2) * b1)
-
-        # Recover the third column vector by computing the cross product of b1 and b2
-        b3 = np.cross(b1, b2)
-
-        # Define the rotation matrix from the column vectors
-        rotation_matrix = [[b1[0], b2[0], b3[0]], [b1[1], b2[1], b3[1]], [b1[2], b2[2], b3[2]]]
-
-        # Transform the rotation matrix into a quaternion
-        quaternion = Rotation.from_matrix(rotation_matrix).as_quat()
-
-        # Define the action to execute
-        action = [output[0], output[1], output[2], quaternion[0], quaternion[1], quaternion[2], quaternion[3]]
-
-        return action
-
-    # (JK) Debug
     def get_reward(self, prev_items, items):
         # Define "done" variable to be False initially, tracks whether episode has ended
         done = False
@@ -225,44 +185,45 @@ class RecycRL(Node):
         # Get the difference of items in the workspace after executing the action
         item_diff = prev_items - items
 
-        # If there is one less item and the current load is greater than 200 mA, we have grasped something
-        if item_diff == 1 and current_load > 200 and items == 0:
-            # If we there are no more items, we have finished sorting, so assign a large reward and set "done" to True
+        # If there's one less item and current load is >200 mA, we grabbed successfully, assign a reward of 1
+        if item_diff == 1 and current_load > 200:
+            reward = 1
+
+            # If there are no more items, we have finished sorting, so set "done" to True
             if items == 0:
-                reward = 10
                 done = True
 
-            # If there are items remaining, give a smaller reward
-            else:
-                reward = 1
-
         # If one of the two conditions for determining a successful grasp is False, query the user for reward
-        if (item_diff != 1 and current_load > 200) or (item_diff == 1 and current_load <= 200 and items == 0):
+        elif (item_diff != 1 and current_load > 200) or (item_diff == 1 and current_load <= 200):
             # Block the program until the user has given the reward for the transition
             self.get_logger().warn("Unable to determine reward for action")
-            self.get_logger().warn("Enter reward (0, 1, or 10)")
-            reward = int(input())
+            self.get_logger().warn("Enter reward (0 or 1)")
+            reward = input()
 
             # If the user does not enter a correct reward
-            while reward != 0 or reward != 1 or reward != 10:
-                self.get_logger().warn(
-                    "You typed '" + str(reward) + "', type '0', '1', or '10' to record the reward and continue"
-                )
+            while reward != "0" and reward != "1":
+                self.get_logger().warn("You typed '" + str(reward) + "', type '0' or '1' to record the reward and continue")
                 reward = input()
+
+            # If there are no more items, we have finished sorting, so set "done" to True
+            if items == 0:
+                done = True
 
         # In all other cases assign a reward of 0
         else:
             reward = 0
 
-        return reward, done
+        return int(reward), done
 
     def save_to_buffer(self, state, action, next_state, reward, done):
         # Add to the replay buffer
         self.buffer.add(state, action, next_state, reward, done)
 
+        # Save the replay buffer
+        np.save(self.buffer_path, self.buffer)
+
         self.get_logger().info("State, action, transition, and reward saved to replay buffer\n")
 
-    # (JK) Flush out
     def go_to(self, position):
         # Define variables
         self.executed = False
@@ -288,35 +249,44 @@ class RecycRL(Node):
                 self.get_logger().warn("Stopped execution")
                 self.trajectory_manager.stop_execution()
 
-        # Print error if planning fails
+            return True
+
+        # Otherwise, return False
         else:
-            self.get_logger().error("Planning failed")
+            return False
 
     # Add distance check (JK)
     def execute_action(self, action):
-        # Convert the action and pass it to the go_to() function
+        # Convert the action to a pose goal
         position = construct_link_constraint(
-            "gripper_base_link",
+            "tcp",
             "world",
             [action[0], action[1], action[2]],
             0.0,
             [action[3], action[4], action[5], action[6]],
             0.01,
         )
-        self.go_to(position)
 
-    # (JK) Need to add invalid position handling
-    def lift(self, height=0.12):
+        # Pass the goal position to the move function
+        executed = self.go_to(position)
+
+        return executed
+
+    # (JK)
+    def approach(self):
+        pass
+
+    def lift(self, height=0.12, max_tolerance=0.15):
         # Get the current pose of the robot
         with self.planning_scene.read_only() as scene:
-            pose = scene.current_state.get_pose("gripper_base_link")
+            pose = scene.current_state.get_pose("tcp")
 
         # Calculate the desired height to lift the gripper
         z_after_lift = pose.position.z + height
 
         # Build the pose goal position as a pose constraint
         lift_position = construct_link_constraint(
-            "gripper_base_link",
+            "tcp",
             "world",
             [pose.position.x, pose.position.y, z_after_lift],
             0.0,
@@ -325,11 +295,32 @@ class RecycRL(Node):
         )
 
         # Pass the lift position to the move function
-        self.go_to(lift_position)
+        lifted = self.go_to(lift_position)
 
-    def grab_and_lift(self):
+        # Define a counter to increase the position tolerance if lift fails
+        tolerance = 1
+
+        # Loop the following until the lift action succeeds or we reach the max retry attempts
+        while (not lifted) and (tolerance <= max_tolerance):
+            # Redefine the lift position with an increased tolerance
+            lift_position = construct_link_constraint(
+                "tcp",
+                "world",
+                [pose.position.x, pose.position.y, z_after_lift],
+                0.01 * tolerance,
+                [pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w],
+                0.01,
+            )
+
+            # Pass the lift position to the move function
+            lifted = self.go_to(lift_position)
+
+            # Increase the tolerance and try the lift again
+            tolerance += 1
+
+    def grab_and_go_to_bin(self, pos=55, sleep_time=0.2):
         # Close the gripper
-        closed = gripper_to_pos(55)
+        closed = gripper_to_pos(pos, sleep_time=sleep_time)
 
         # If the gripper closed
         if closed:
@@ -341,15 +332,16 @@ class RecycRL(Node):
                 # Go to the bin
                 self.go_to(self.bin)
 
-                # Open the gripper to drop the item
-                release_result = gripper_to_pos(25)
-
             elif self.execution_status != "SUCCEEDED":
                 self.get_logger().error("Unable to lift gripper, trying again")
 
         # If the gripper did not close, notify the user
         elif not closed:
             self.get_logger().warn("Failed to close gripper, check that gripper is powered\nGoing back home")
+
+    def open_gripper(self, pos=25, sleep_time=0.2):
+        # Open the gripper
+        gripper_to_pos(pos, sleep_time=sleep_time)
 
     def deactivate_external_control(self):
         # Call the Get State Service, spin the Node until a response is received, and define the response

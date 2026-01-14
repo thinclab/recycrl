@@ -4,8 +4,6 @@
 This script simplifies the process of loading the tracking variables for the RL model
 """
 
-# assess.py: Added script to load and print the tracking variables for the RL model
-
 import os
 import numpy as np
 from argparse import ArgumentParser
