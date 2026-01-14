@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 
 """
-This script provides a ROS2 service to get the position and orientation of recyclables. It first utilizes a YOLO Instance
-Segmentation model to identify the masks of the detected bottles and cans. Then, it computes the yaw angle of the objects
-using Principal Component Analysis (PCA).Finally, it calculates the pitch angle of the bottle by getting the 3D position
+This script provides a ROS2 service to get the position and orientation of recyclables. It first utilizes a YOLO instance
+segmentation model to identify the masks of the detected bottles and cans. Then, it computes the yaw angle of the objects
+using Principal Component Analysis (PCA). Finally, it calculates the pitch angle of the bottle by getting the 3D position
 of two endpoints on the bottle.
 """
 
@@ -43,12 +43,13 @@ def main():
     parser.add_argument(
         "-weights",
         dest="weights",
-        default=directory / "yolo" / "weights" / "bottles_only.pt",
+        default=directory / "yolo" / "weights" / "all_finetuned.pt",
         help="Location of weights for the instance segmentation model",
     )
     parser.add_argument(
         "-output", dest="output", default=directory / "output", help="Location to save the most recent masks and PCA analysis"
     )
+    parser.add_argument("--debug", dest="debug", action="store_true", help="Print the yaw and pitch angles for debugging")
     parser.add_argument(
         "--save_test_data",
         dest="save_test_data",
@@ -63,12 +64,13 @@ def main():
     args = parser.parse_args()
     weights = args.weights
     output = args.output
+    debug = args.debug
     save_test_data = args.save_test_data
     use_test_data = args.use_test_data
 
     # Initialize rclpy and the YOLOService Node
     rclpy.init()
-    yolo_srv = YOLOService(weights, output, save_test_data, use_test_data)
+    yolo_srv = YOLOService(weights, output, debug, save_test_data, use_test_data)
 
     # Try to spin the node
     try:
@@ -76,7 +78,7 @@ def main():
 
     # If there is an exception with spinning the Node, notify the user
     except Exception as e:
-        print("\nYolo Client Failed: %r" % (e,))
+        print("\nYolo service failed: %r" % (e,))
 
     # If there is a Keyboard Interrupt, gracefully shut down the Node
     except KeyboardInterrupt:
@@ -84,11 +86,14 @@ def main():
 
 
 class YOLOService(Node):
-    def __init__(self, weights, output, save_test_data, use_test_data):
+    def __init__(self, weights, output, debug, save_test_data, use_test_data):
         # Register the ROS2 Node
         super().__init__("yolo_service")
 
         # Define global variables from passed arguments
+        self.debug = debug
+        self.model = YOLO(weights)
+        self.output_path = output
         self.save_test_data = save_test_data
         self.use_test_data = use_test_data
 
@@ -105,13 +110,7 @@ class YOLOService(Node):
         self.sync_sub.registerCallback(self.sub_callback)
 
         # Create a service for getting the 3D object locations
-        self.service = self.create_service(Poses, "/get_object_locations", self.get_object_locations)
-
-        # Get the /recycrl directory, define the model with the weights path, define the output path
-        # directory = Path(__file__).parents[4]/"src"/"recycrl"
-        # weights_path = directory/"yolo"/"weights"/weights
-        self.model = YOLO(weights)
-        self.output_path = output
+        self.service = self.create_service(Poses, "/get_poses", self.get_poses)
 
         # Define global variable for storing the most recent images and camera data
         self.rgb = None
@@ -171,7 +170,11 @@ class YOLOService(Node):
             except ConnectivityException:
                 self.get_logger().info("Unable to get Camera transform, trying again")
 
-    def get_object_locations(self, msg, response):
+    def get_poses(self, msg, response):
+        # If debug mode was specified
+        if self.debug:
+            self.get_logger().info("Request received")
+
         # If no new image has been received or if the camera transform has not been defined, return an empty response
         if self.rgb is None or not self.cam_tf:
             return response
@@ -195,7 +198,7 @@ class YOLOService(Node):
         self.depth = None
 
         # Pass the copied image to the model to detect objects
-        prediction = self.model.predict(rgb_image, conf=0.25, verbose=False)[0]
+        prediction = self.model.predict(rgb_image, conf=0.5, verbose=False)[0]
 
         # Get the labels and detections from the model output
         detections = sv.Detections.from_ultralytics(prediction)
@@ -214,30 +217,32 @@ class YOLOService(Node):
         # Get the masks from the predictions
         masks = prediction.masks.data
 
+        # If debug mode was specified
+        if self.debug:
+            self.get_logger().info(f"Confidence Scores:\n{prediction.boxes.conf.detach().cpu().tolist()}")
+
         # Define lists for upcoming "for" loop
         centroid_points = []
         yaw_angles = []
         endpoint_pairs = []
+        variance_ratios = []
 
         # Clear the last plot
         plt.clf()
 
+        """Initial Mask Processing Loop"""
         # Iterate through each detected mask
-        for mask in masks:
+        for i, mask in enumerate(masks):
             # Move the mask from GPU -> CPU and convert to a numpy array
             mask = mask.detach().cpu().numpy()
 
             # Take the boolean array, remove all values that are zero, and transform it into a stack that represents the points
             mask_points = np.column_stack(np.nonzero(mask))
 
-            max_location, max_height = self.get_mask_max(depth_image, mask_points, mask.shape)
-
-            # Define the PCA model to be in 2 Dimensions and fit the model to the mask
+            # Define the PCA model to be in 2 Dimensions, fit the model to the mask, and append the current variance ratio
             pca = PCA(n_components=2)
             pca.fit(mask_points)
-
-            # print(f"Variance: {pca.explained_variance_}")
-            # print(f"Variance Ratio: {pca.explained_variance_ratio_}")
+            variance_ratios.append(pca.explained_variance_ratio_[0])
 
             # Get computed centroid, compute point in image (due to transforms, masks have different shape; also centroid: [y,x])
             centroid = pca.mean_
@@ -267,29 +272,9 @@ class YOLOService(Node):
             max_projection_point = projection_points.max()
             length = max_projection_point - min_projection_point
 
-            # Calculate the radius of both ends of the bottle
-            min_radius = self.calculate_radius(
-                centroid, principal_axis, mask_points, projection_points, min_projection_point, length, 0.1
-            )
-            max_radius = self.calculate_radius(
-                centroid, principal_axis, mask_points, projection_points, max_projection_point, length, 0.1
-            )
-
-            # (JK) Flip bottle orientation based on sign?
-            # If the leftmost radius is larger than the rightmost radius (see image)
-            if min_radius > max_radius:
-                min_projection_point = min_projection_point + length * 0.1
-                max_projection_point = max_projection_point - length * 0.25
-
-            # If the rightmost radius is larger than the leftmost radius (see image)
-            elif min_radius < max_radius:
-                min_projection_point = min_projection_point + length * 0.25
-                max_projection_point = max_projection_point - length * 0.1
-
-            # If the radii are equal
-            else:
-                min_projection_point = min_projection_point + length * 0.25
-                max_projection_point = max_projection_point - length * 0.25
+            # Move the endpoints inward by 20% of the length to avoid noisy endpoints
+            min_projection_point = min_projection_point + length * 0.2
+            max_projection_point = max_projection_point - length * 0.2
 
             # Convert from principal axis -> mask shape coordinates -> image coordinates, then append the endpoint pair
             min_end = pca.mean_ + min_projection_point * principal_axis
@@ -302,6 +287,7 @@ class YOLOService(Node):
             plt.imshow(mask, cmap="gray")
             plt.scatter(mask_points[:, 1], mask_points[:, 0], s=1)
             plt.scatter(centroid[1], centroid[0], color="red", label="Center")
+            plt.text(centroid[1] + 5, centroid[0] - 5, f"{i + 1}", color="white")
             plt.plot(
                 [centroid[1], centroid[1] + 30 * principal_axis[1]],
                 [centroid[0], centroid[0] + 30 * principal_axis[0]],
@@ -311,8 +297,6 @@ class YOLOService(Node):
             )
             plt.scatter(min_end[1], min_end[0], color="yellow", label="End 1")
             plt.scatter(max_end[1], max_end[0], color="orange", label="End 2")
-            # plt.scatter(min_radius_points[:, 1], min_radius_points[:, 0], s=3, color='green')
-            # plt.scatter(max_radius_points[:, 1], max_radius_points[:, 0], s=3, color='green')
 
         # Plot all of the masks and save the figure
         plt.axis("off")
@@ -322,6 +306,7 @@ class YOLOService(Node):
         # Define an array to hold the 3D positions of the centroids with-respect-to the camera
         centroid_positions = []
 
+        """Centroid Depth Calculation Loop"""
         # Loop through each masks centroid
         for i, centroid_point in enumerate(centroid_points):
             # Get the depth of the point in the image
@@ -345,10 +330,21 @@ class YOLOService(Node):
         # Define an array to hold the calculated pitch angles
         pitch_angles = []
 
+        # If debug mode was specified
+        if self.debug:
+            self.get_logger().info(f"Variance Ratios:\n{variance_ratios}")
+
+        """Pitch Calculation Loop"""
         # Loop through each pair of endpoints
-        for endpoint_pair in endpoint_pairs:
+        for i, endpoint_pair in enumerate(endpoint_pairs):
             # Define a list to hold the positions of the current pair of endpoints
             endpoint_poses = []
+
+            # If the object is a can and its variance ratio is less than 0.65
+            if prediction.boxes.cls[i] == 1 and variance_ratios[i] < 0.64:
+                # Append a pitch angle of -90 degrees (standing upright) and skip to the next endpoints
+                pitch_angles.append((-pi / 2))
+                continue
 
             # Loop through each endpoint in the pair
             for endpoint in endpoint_pair:
@@ -361,7 +357,7 @@ class YOLOService(Node):
                     position = self.get_position_wrt_cam(endpoint, depth)
 
                     # Transform the 3D pose of the object in the camera frame to the world frame
-                    pose = self.transform_to_world(position, 0.0, 0.0, None)
+                    pose = self.transform_to_world(position, 0.0, 0.0)
 
                     # Append the pose to the list of endpoint poses
                     endpoint_poses.append(pose)
@@ -386,50 +382,41 @@ class YOLOService(Node):
                 # Append the calculated pitch for the pair of endpoints to the running list
                 pitch_angles.append(pitch_angle)
 
-        # Debug print statements
-        for i in range(len(centroid_positions)):
-            print(f"Yaw: {degrees(yaw_angles[i])}, Pitch: {degrees(pitch_angles[i])}")
-            if i + 1 == len(centroid_positions):
-                print("")
+        # If the user specifies debug mode
+        if self.debug:
+            # Print statements for the extracted yaw and pitch angles
+            for i in range(len(centroid_positions)):
+                self.get_logger().info(f"Yaw: {round(degrees(yaw_angles[i]), 4)}, Pitch: {round(degrees(pitch_angles[i]), 4)}")
 
+        """Final Pose Calculation Loop"""
         # Loop through each centroid position with-respect-to the camera
         for i, centroid_position in enumerate(centroid_positions):
             # Transform the 3D position of the centroid in camera frame to world frame, pass corresponding pitch and yaw
-            pose = self.transform_to_world(centroid_position, pitch_angles[i], yaw_angles[i], max_height)
+            pose = self.transform_to_world(centroid_position, pitch_angles[i], yaw_angles[i])
+
+            # If the pitch is -90 degrees (standing upright) or if the z position is too high
+            if pitch_angles[i] == -pi / 2 or pose.position.z > 0.9:
+                # Get the maximum height of the mask
+                max_height, _ = self.get_mask_max(depth_image, masks[i])
+
+                # The centroid is top of object, so set z position to be halfway between conveyor and top of object
+                pose.position.z = 0.75 + ((max_height - 0.75) / 2)
 
             # Add the poses to the list
             response.poses.append(pose)
 
         return response
 
-    def calculate_radius(self, centroid, principal_axis, mask_points, projection_points, projection_endpoint, length, ratio):
-        # Create a boolean mask to select projection points within a specified fraction of the total length from the endpoint
-        proximity_mask = (projection_points >= (projection_endpoint - length * ratio)) & (
-            projection_points <= (projection_endpoint + length * ratio)
-        )
+    def get_mask_max(self, depth_image, mask):
+        # Move the mask from GPU -> CPU and convert to a numpy array
+        mask = mask.detach().cpu().numpy()
 
-        # Select the points that are within the specified proximity of the endpoint
-        selected_points = mask_points[proximity_mask]
-
-        # Calculate the projection of the selected points onto the principal axis
-        selected_points_projected = np.dot(selected_points - centroid, principal_axis)
-
-        # Convert from principal axis coordinates -> mask coordinates
-        transformed_projection_points = centroid + np.outer(selected_points_projected, principal_axis)
-
-        # Calculate the distance from the points to their corresponding projection and then compute the average to get the radius
-        radius = np.median(np.linalg.norm(selected_points - transformed_projection_points, axis=1))
-
-        return radius
-
-    # (JK)
-    def get_mask_max(self, depth_image, mask_points, mask_shape):
-        # Make a copy of the mask points so that we can alter the original
-        points = mask_points.copy()
+        # Take the boolean array, remove all values that are zero, and transform it into a stack that represents the points
+        points = np.column_stack(np.nonzero(mask))
 
         # Convert the points from mask -> depth image coordinates
-        points[:, 1] = points[:, 1] * (self.depth_width / mask_shape[1])
-        points[:, 0] = points[:, 0] * (self.depth_height / mask_shape[0])
+        points[:, 1] = points[:, 1] * (self.depth_width / mask.shape[1])
+        points[:, 0] = points[:, 0] * (self.depth_height / mask.shape[0])
 
         # Apply the mask to the depth image
         masked_depth = depth_image[points[:, 0], points[:, 1]].copy()
@@ -443,16 +430,16 @@ class YOLOService(Node):
         # Use the index to find the minimum depth point which corresponds to the maximum height
         min_point = points[min_index]
 
-        #
+        # Get the height of the minimum point
         depth = self.get_depth(depth_image, [min_point[1], min_point[0]], 1, 1, "mean")
         position = self.get_position_wrt_cam(min_point, depth)
-        pose = self.transform_to_world(position, 0.0, 0.0, None)
+        pose = self.transform_to_world(position, 0.0, 0.0)
 
         # Flip the coordinates and convert from depth image -> mask coordinates
-        min_point[1] = min_point[1] * (mask_shape[1] / self.depth_width)
-        min_point[0] = min_point[0] * (mask_shape[0] / self.depth_height)
+        min_point[1] = min_point[1] * (mask.shape[1] / self.depth_width)
+        min_point[0] = min_point[0] * (mask.shape[0] / self.depth_height)
 
-        return min_point, pose.position.z
+        return pose.position.z, min_point
 
     def get_depth(self, depth_img, img_point, initial_box_width, box_increment, mode):
         # Define a depth variable in case no valid depths are extracted
@@ -501,7 +488,7 @@ class YOLOService(Node):
 
         return position
 
-    def transform_to_world(self, position, pitch, yaw, max_height):
+    def transform_to_world(self, position, pitch, yaw):
         # Define a Pose Stamped message and fill the header and position values
         pose = PoseStamped()
         pose.header.frame_id = self.tf
@@ -512,11 +499,6 @@ class YOLOService(Node):
 
         # Transform the pose from the camera frame to the root frame
         tf_pose = do_transform_pose(pose.pose, self.cam_tf)
-
-        # (JK)
-        # If the pitch is -90 degrees or standing upright
-        if pitch == -pi / 2:
-            tf_pose.position.z = 0.75 + ((max_height - 0.75) / 2)
 
         # Transform the passed pitch and yaw to a quaternion
         qx, qy, qz, qw = quaternion_from_euler(0.0, pitch, yaw)
