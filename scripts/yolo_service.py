@@ -8,6 +8,7 @@ of two endpoints on the bottle.
 """
 
 import rclpy
+import matplotlib
 import numpy as np
 from time import sleep
 from pathlib import Path
@@ -16,9 +17,9 @@ from rclpy.node import Node
 from rclpy.time import Time
 from ultralytics import YOLO
 from math import degrees, pi
+from threading import Thread
 from recycrl.srv import Poses
 from cv_bridge import CvBridge
-import matplotlib.pyplot as plt
 from cv2 import imwrite, imread
 from argparse import ArgumentParser
 from rclpy.duration import Duration
@@ -31,6 +32,9 @@ from tf_transformations import quaternion_from_euler
 from tf2_geometry_msgs.tf2_geometry_msgs import PoseStamped
 from message_filters import Subscriber, ApproximateTimeSynchronizer
 from tf2_ros import Buffer, TransformListener, LookupException, ConnectivityException
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 
 
 def main():
@@ -155,7 +159,7 @@ class YOLOService(Node):
                 if self.cam_tf.transform.translation.z == 0.0 or self.cam_tf.transform.rotation.x == 0.5:
                     # Reset the variable that holds the transform to retry, notify user, and pause slightly
                     self.cam_tf = None
-                    self.get_logger().info("Received incorrect transform, trying again")
+                    self.get_logger().info("Received incorrect Transform, trying again")
                     sleep(2.0)
 
                 # If the transform is correct, notify the user that the service is ready
@@ -163,12 +167,12 @@ class YOLOService(Node):
                     self.get_logger().info("YOLO Service Ready")
 
             # If we have a Lookup Exception (due to timeout generally), notify the user
-            except LookupException or ConnectivityException:
-                self.get_logger().info("Unable to get Camera transform, trying again")
+            except LookupException:
+                self.get_logger().info("Transform Lookup Exception, trying again")
 
             # If we have a Connectivity Exception (not sure why this occurs), notify the user
             except ConnectivityException:
-                self.get_logger().info("Unable to get Camera transform, trying again")
+                self.get_logger().info("Transform Connectivity Exception, trying again")
 
     def get_poses(self, msg, response):
         # If debug mode was specified
@@ -197,7 +201,7 @@ class YOLOService(Node):
         self.rgb = None
         self.depth = None
 
-        # Pass the copied image to the model to detect objects
+        # Pass the copied image to the model to detect objects (This takes 1 extra second to load on first request)
         prediction = self.model.predict(rgb_image, conf=0.5, verbose=False)[0]
 
         # Get the labels and detections from the model output
@@ -214,8 +218,8 @@ class YOLOService(Node):
         if not prediction.masks:
             return response
 
-        # Get the masks from the predictions
-        masks = prediction.masks.data
+        # Get the masks from the predictions and move them from GPU -> CPU as numpy arrays
+        masks = prediction.masks.data.detach().cpu().numpy()
 
         # If debug mode was specified
         if self.debug:
@@ -223,19 +227,16 @@ class YOLOService(Node):
 
         # Define lists for upcoming "for" loop
         centroid_points = []
+        plot_centroids = []
         yaw_angles = []
+        plot_axes = []
         endpoint_pairs = []
+        plot_endpoints = []
         variance_ratios = []
-
-        # Clear the last plot
-        plt.clf()
 
         """Initial Mask Processing Loop"""
         # Iterate through each detected mask
         for i, mask in enumerate(masks):
-            # Move the mask from GPU -> CPU and convert to a numpy array
-            mask = mask.detach().cpu().numpy()
-
             # Take the boolean array, remove all values that are zero, and transform it into a stack that represents the points
             mask_points = np.column_stack(np.nonzero(mask))
 
@@ -246,12 +247,14 @@ class YOLOService(Node):
 
             # Get computed centroid, compute point in image (due to transforms, masks have different shape; also centroid: [y,x])
             centroid = pca.mean_
+            plot_centroids.append(centroid)
             centroid_point = [centroid[1] * (self.depth_width / mask.shape[1]), centroid[0] * (self.depth_height / mask.shape[0])]
             centroid_points.append(centroid_point)
 
             # Get the vector components of the principal axis and calculate the yaw angle of the mask. We do arctan(-x, -y)
             # because origin of image is in top left and world axis is rotated +90 degrees about Z axis from image
             principal_axis = pca.components_[0]
+            plot_axes.append(principal_axis)
             yaw_angle = np.arctan2(-principal_axis[1], -principal_axis[0])
 
             # Constrict the yaw angle to be between -90 and 90 degrees
@@ -279,29 +282,13 @@ class YOLOService(Node):
             # Convert from principal axis -> mask shape coordinates -> image coordinates, then append the endpoint pair
             min_end = pca.mean_ + min_projection_point * principal_axis
             max_end = pca.mean_ + max_projection_point * principal_axis
+            plot_endpoints.append([min_end, max_end])
             min_endpoint = [min_end[1] * (self.depth_width / mask.shape[1]), min_end[0] * (self.depth_height / mask.shape[0])]
             max_endpoint = [max_end[1] * (self.depth_width / mask.shape[1]), max_end[0] * (self.depth_height / mask.shape[0])]
             endpoint_pairs.append([min_endpoint, max_endpoint])
 
-            # Plot the current mask, centroid, endpoints, and principal axis
-            plt.imshow(mask, cmap="gray")
-            plt.scatter(mask_points[:, 1], mask_points[:, 0], s=1)
-            plt.scatter(centroid[1], centroid[0], color="red", label="Center")
-            plt.text(centroid[1] + 5, centroid[0] - 5, f"{i + 1}", color="white")
-            plt.plot(
-                [centroid[1], centroid[1] + 30 * principal_axis[1]],
-                [centroid[0], centroid[0] + 30 * principal_axis[0]],
-                color="blue",
-                linewidth=2,
-                label="Principal Axis",
-            )
-            plt.scatter(min_end[1], min_end[0], color="yellow", label="End 1")
-            plt.scatter(max_end[1], max_end[0], color="orange", label="End 2")
-
-        # Plot all of the masks and save the figure
-        plt.axis("off")
-        plt.tight_layout()
-        plt.savefig(f"{self.output_path}/pca.png", dpi=300)
+        # Create a thread for plotting and start it in the background
+        Thread(target=self.plot, args=(masks, plot_centroids, plot_axes, plot_endpoints)).start()
 
         # Define an array to hold the 3D positions of the centroids with-respect-to the camera
         centroid_positions = []
@@ -408,9 +395,6 @@ class YOLOService(Node):
         return response
 
     def get_mask_max(self, depth_image, mask):
-        # Move the mask from GPU -> CPU and convert to a numpy array
-        mask = mask.detach().cpu().numpy()
-
         # Take the boolean array, remove all values that are zero, and transform it into a stack that represents the points
         points = np.column_stack(np.nonzero(mask))
 
@@ -526,6 +510,38 @@ class YOLOService(Node):
         pitch_angle = -np.arctan2(depth_diff, xy_dist)
 
         return pitch_angle
+
+    def plot(self, masks, centroids, axes, endpoints):
+        # Initialize subplots
+        fig, ax = plt.subplots()
+
+        # This is only necessary for scaling
+        ax.imshow(masks[0], cmap="gray")
+
+        # Loop through each of the masks
+        for i, mask in enumerate(masks):
+            # Take boolean array, remove all zero values, and transform it into stack that represents the points
+            mask_points = np.column_stack(np.nonzero(mask))
+
+            # Plot the current mask, centroid, endpoints, and principal axis
+            ax.scatter(mask_points[:, 1], mask_points[:, 0], s=1)
+            ax.scatter(centroids[i][1], centroids[i][0], color="red", label="Center")
+            ax.text(centroids[i][1] + 5, centroids[i][0] - 5, f"{i + 1}", color="white")
+            ax.plot(
+                [centroids[i][1], centroids[i][1] + 30 * axes[i][1]],
+                [centroids[i][0], centroids[i][0] + 30 * axes[i][0]],
+                color="blue",
+                linewidth=2,
+                label="Principal Axis",
+            )
+            ax.scatter(endpoints[i][0][1], endpoints[i][0][0], color="yellow", label="End 1")
+            ax.scatter(endpoints[i][1][1], endpoints[i][1][0], color="orange", label="End 2")
+
+        # After everything has been added, save the figure
+        ax.axis("off")
+        fig.tight_layout()
+        fig.savefig(f"{self.output_path}/pca.png", dpi=300)
+        plt.close(fig)
 
 
 if __name__ == "__main__":
