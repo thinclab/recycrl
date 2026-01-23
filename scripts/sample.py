@@ -16,7 +16,7 @@ def main():
     parser.add_argument(
         "-buffer_path",
         dest="buffer_path",
-        default="~/Replay_Buffer.npy",
+        default="~/RD3/Replay_Buffer",
         help="Path to save the replay buffer with demonstrations",
     )
     parser.add_argument("-sample_num", dest="sample_num", default="10", help="Number of samples to take")
@@ -30,7 +30,7 @@ def main():
     buffer_path = os.path.expanduser(buffer_path)
 
     # Load the buffer
-    buffer = np.load(buffer_path, allow_pickle=True).item()
+    buffer = np.load(buffer_path + ".npy", allow_pickle=True).item()
 
     # Sample from the buffer
     tensors = buffer.sample(sample_number)

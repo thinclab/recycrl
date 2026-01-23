@@ -18,11 +18,11 @@ def main():
     parser.add_argument(
         "-buffer_path",
         dest="buffer_path",
-        default="~/RD3/Replay_Buffer.npy",
+        default="~/RD3/Replay_Buffer",
         help="Path to save the replay buffer with demonstrations",
     )
     parser.add_argument("-state_dim", dest="state_dim", default="8", help="Dimension size of state")
-    parser.add_argument("-action_dim", dest="action_dim", default="7", help="Dimension size of action")
+    parser.add_argument("-action_dim", dest="action_dim", default="6", help="Dimension size of action")
 
     # Parse and assign arguments
     args = parser.parse_args()
@@ -50,8 +50,11 @@ def main():
         # Get the initial poses of the items in the workspace
         state = imitate.get_workspace_state()
 
+        # Set 'run' to True initially to start the loop
+        run = True
+
         # Start the loop
-        while True:
+        while run:
             # If the workspace is empty
             if state[-1] == 0:
                 # Wait for the user to arrange items in the workspace
@@ -88,10 +91,21 @@ def main():
             imitate.open_gripper()
 
             # Save the state, action, transition, and reward to the replay buffer
-            imitate.save_to_buffer(state, action, next_state, reward, done)
+            imitate.add_to_buffer(state, action, next_state, reward, done)
 
             # Assign the next state to the current state for the next iteration, more efficient
             state = next_state
+
+            # If the buffer size is divisible by 10
+            if imitate.buffer.size % 10 == 0:
+                # Save the buffer incrementally
+                imitate.save_buffer()
+
+            # Check if the loop should continue
+            run = imitate.loop_check()
+
+        # Save the buffer after exiting the loop
+        imitate.save_buffer()
 
     # If there is an exception with the loop, notify the user
     except Exception as e:

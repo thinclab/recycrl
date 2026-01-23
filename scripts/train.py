@@ -8,6 +8,7 @@ import os
 import rclpy
 from TD3.RD3 import RD3
 from recycRL import RecycRL
+from ast import literal_eval
 from argparse import ArgumentParser
 
 
@@ -24,12 +25,23 @@ def main():
     parser.add_argument(
         "-buffer_path",
         dest="buffer_path",
-        default="~/RD3/Replay_Buffer.npy",
+        default="~/RD3/Replay_Buffer",
         help="Path to save the replay buffer with demonstrations",
     )
     parser.add_argument("-state_dim", dest="state_dim", default="8", help="Dimension size of state")
-    parser.add_argument("-action_dim", dest="action_dim", default="7", help="Dimension size of action")
-    parser.add_argument("-max_action", dest="max_action", default="1.0", help="Maximum action value")
+    parser.add_argument("-action_dim", dest="action_dim", default="6", help="Dimension size of action")
+    parser.add_argument(
+        "-min_action",
+        dest="min_action",
+        default="[0.2, -0.35, 0.81, -1.570796327, -1.570796327, -0.7853981634]",
+        help="Minimum action values vector for x, y, and z position outputs",
+    )
+    parser.add_argument(
+        "-max_action",
+        dest="max_action",
+        default="[0.55, 0.35, 0.93, 1.570796327, 1.570796327, 0.7853981634]",
+        help="Maximum action values vector for x, y, and z position outputs",
+    )
     parser.add_argument("-expl_noise", dest="expl_noise", default="0.012", help="Exploration noise standard deviation")
     parser.add_argument("-policy_noise", dest="policy_noise", default="0.008", help="Policy noise standard deviation")
     parser.add_argument("-noise_clip", dest="noise_clip", default="0.02", help="Maximum noise value")
@@ -41,7 +53,8 @@ def main():
     buffer_path = args.buffer_path
     state_dim = int(args.state_dim)
     action_dim = int(args.action_dim)
-    max_action = float(args.max_action)
+    min_action = literal_eval(args.min_action)
+    max_action = literal_eval(args.max_action)
     expl_noise = float(args.expl_noise)
     policy_noise = float(args.policy_noise)
     noise_clip = float(args.noise_clip)
@@ -55,7 +68,9 @@ def main():
     rclpy.init()
 
     # Initialize the RD3 RL Class
-    rl = RD3(state_dim, action_dim, max_action, expl_noise=expl_noise, policy_noise=policy_noise, noise_clip=noise_clip)
+    rl = RD3(
+        state_dim, action_dim, min_action, max_action, expl_noise=expl_noise, policy_noise=policy_noise, noise_clip=noise_clip
+    )
 
     # If the RL model has been saved previously
     if os.path.exists(f"{rl_path}_actor"):
@@ -79,8 +94,11 @@ def main():
         # Get the initial poses of the items in the workspace
         state = train.get_workspace_state()
 
+        # Set 'run' to True initially to start the loop
+        run = True
+
         # Start the loop
-        while True:
+        while run:
             # If the workspace is empty
             if state[-1] == 0:
                 # Wait for the user to arrange items in the workspace
@@ -96,7 +114,7 @@ def main():
             action = rl.select_action(state, add_noise=True)
 
             # Go to the robot pose defined by the action
-            executed = train.execute_action(action)
+            executed = train.execute_action(state, action)
 
             # If the robot successfully moved to the desired pose
             if executed:
@@ -114,22 +132,32 @@ def main():
             # Get the reward of the action
             reward, done = train.get_reward(state[-1], next_state[-1])
 
-            # Save the state, action, transition, and reward to the replay buffer
-            train.save_to_buffer(state, action, next_state, reward, done)
+            # Add the state, action, transition, and reward to the replay buffer
+            train.add_to_buffer(state, action, next_state, reward, done)
 
             # If the replay buffer has been populated enough
             if train.buffer.size >= batch_size:
                 # Train the RL model with the replay buffer
                 rl.train(train.buffer, batch_size)
 
-                # Save the RL model
-                rl.save(rl_path)
-
             # Assign the next state to the current state for the next iteration, more efficient
             state = next_state
 
             # Evaluate the policy
-            avg_reward = rl.evaluate_policy(reward)
+            rl.evaluate_policy(reward, rl_path)
+
+            # If the training steps is divisible by 50
+            if rl.total_it % 50 == 0:
+                # Save the buffer and RL model incrementally
+                train.save_buffer()
+                rl.save(rl_path)
+
+            # Check if the loop should continue
+            run = train.loop_check()
+
+        # Save the buffer and RL model after exiting the loop
+        train.save_buffer()
+        rl.save(rl_path)
 
     # If there is an exception with the loop
     except Exception as e:
