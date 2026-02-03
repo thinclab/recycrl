@@ -9,6 +9,7 @@ import os
 import rclpy
 import numpy as np
 from time import sleep
+from math import degrees
 from rclpy.node import Node
 from recycrl.srv import Poses
 from TD3.utils import ReplayBuffer
@@ -29,7 +30,7 @@ from moveit.core.kinematic_constraints import construct_joint_constraint, constr
 
 
 class RecycRL(Node):
-    def __init__(self, buffer_path, state_dim=8, action_dim=6):
+    def __init__(self, buffer_path, state_dim=9, action_dim=6):
         # Register the ROS2 Node
         super().__init__("recycrl")
 
@@ -44,8 +45,7 @@ class RecycRL(Node):
         self.buffer_path = buffer_path
         self.execution_status = None
         self.executed = False
-        self.timed_out = False
-        self.max_height = 0.0
+        self.second_max_height = 0.0
 
         # If the replay buffer does not exist, initialize a new ReplayBuffer() Class
         if not os.path.exists(buffer_path + ".npy"):
@@ -55,6 +55,25 @@ class RecycRL(Node):
         # If the replay buffer exists, load the Class
         else:
             self.buffer = np.load(buffer_path + ".npy", allow_pickle=True).item()
+
+        # Define requests and clients
+        self.get_poses_request = Poses.Request()
+        self.get_state_request = GetState.Request()
+        self.change_state_request = ChangeState.Request()
+        self.get_poses_client = self.create_client(Poses, "/get_poses")
+        self.get_state_client = self.create_client(GetState, "/robot_manager/get_state")
+        self.change_state_client = self.create_client(ChangeState, "/robot_manager/change_state")
+
+        # Wait for the services to become available
+        while not self.get_poses_client.wait_for_service(4.0):
+            self.get_logger().info("Waiting for YOLO service ...")
+        while not self.get_state_client.wait_for_service(4.0):
+            self.get_logger().info("Waiting for robot get state service ...")
+        while not self.change_state_client.wait_for_service(4.0):
+            self.get_logger().info("Waiting for robot change state service ...")
+
+        # Check if the robot is active, and activate it if it is inactive
+        self.activate_external_control()
 
         # Define the MoveIt Configuration
         moveit_config = (
@@ -84,24 +103,8 @@ class RecycRL(Node):
         self.bin = self.construct_joint_position([-1.5708, -1.13446, 1.48353, 0.0, 1.22173, -1.5708])
         self.hidden = self.construct_joint_position([-1.5708, -1.5708, 1.5708, 0.0, 1.5708, 0.0])
 
-        # Define requests and clients
-        self.get_poses_request = Poses.Request()
-        self.get_state_request = GetState.Request()
-        self.change_state_request = ChangeState.Request()
-        self.get_poses_client = self.create_client(Poses, "/get_poses")
-        self.get_state_client = self.create_client(GetState, "/robot_manager/get_state")
-        self.change_state_client = self.create_client(ChangeState, "/robot_manager/change_state")
-
         # Logging for buffer size
         self.get_logger().info("Buffer ready with size of " + str(self.buffer.size))
-
-        # Wait for the services to become available
-        while not self.get_poses_client.wait_for_service(4.0):
-            self.get_logger().info("Waiting for YOLO service ...")
-        while not self.get_state_client.wait_for_service(4.0):
-            self.get_logger().info("Waiting for robot get state service ...")
-        while not self.change_state_client.wait_for_service(4.0):
-            self.get_logger().info("Waiting for robot change state service ...")
 
     def trajectory_callback(self, msg):
         # Assign the message to the global variable
@@ -121,33 +124,23 @@ class RecycRL(Node):
             self.get_logger().warn("You typed '" + str(answer) + "', click 'Enter' to capture the current workspace and continue")
             answer = input()
 
-    # (JK) Determine which pose to use
     def get_workspace_state(self):
         # Call the get poses service, spin the Node until a response is received, and define the response
         get_poses_future = self.get_poses_client.call_async(self.get_poses_request)
         rclpy.spin_until_future_complete(self, get_poses_future)
         get_state_response = get_poses_future.result()
 
+        # Define variable to choose index or object for state
+        pose_index = 0
+
         # Check that the service returned at least one pose
         if get_state_response.poses:
-            # Get the first pose from the response, convert the pose into a list, and round all the values for the state
-            pose = get_state_response.poses[0]
-            state = [
-                pose.position.x,
-                pose.position.y,
-                pose.position.z,
-                pose.orientation.x,
-                pose.orientation.y,
-                pose.orientation.z,
-                pose.orientation.w,
-            ]
-            state = [round(x, 4) for x in state]
-
-            # Reset the max height global variable
-            self.max_height = 0.0
+            # Define a list to hold each object's height
+            heights = []
+            pitchy = False
 
             # Iterate through each pose
-            for poses in get_state_response.poses:
+            for i, poses in enumerate(get_state_response.poses):
                 # Extract the pitch angle from the quaternion
                 _, pitch, _ = euler_from_quaternion(
                     [poses.orientation.x, poses.orientation.y, poses.orientation.z, poses.orientation.w]
@@ -158,25 +151,80 @@ class RecycRL(Node):
                     # Double the height of the object
                     height = 0.75 + ((poses.position.z - 0.75) * 2)
 
+                    # Set the "pitchy" variable to True for logic
+                    pitchy = True
+
                 # In all other cases
                 else:
                     # The height is just the z position
                     height = poses.position.z
 
-                # If the pose z position is larger than the current "max height" value
-                if height > self.max_height:
-                    # Assign the z position of the current pose to the "max height" variable
-                    self.max_height = height
+                # Append the current height to the list
+                heights.append(height)
 
-        # Otherwise, return a list with all zeros
+            # If there are angled objects
+            if pitchy:
+                # If there is more than one item in the list
+                if len(heights) > 1:
+                    # Assign the index of the tallest object so this object is used for state representation
+                    pose_index = heights.index(max(heights))
+
+                    # Remove the maximum value from the list and get the new max for the "second max" value
+                    heights.pop(pose_index)
+                    self.second_max_height = max(heights)
+
+                # If there is one item in the list
+                elif len(heights) == 1:
+                    # Set the "second max" value to 0.75 (conveyor height)
+                    self.second_max_height = 0.75
+
+            # If there are no angled objects
+            elif not pitchy:
+                # Set the second max height variable accordingly
+                self.second_max_height = 0.83
+
+            # Get the pose with the largest pitch
+            pose = get_state_response.poses[pose_index]
+
+            # Convert the pose into a list and add the object type and number of items in the workspace
+            state = [
+                round(pose.position.x, 4),
+                round(pose.position.y, 4),
+                round(pose.position.z, 4),
+                round(pose.orientation.x, 4),
+                round(pose.orientation.y, 4),
+                round(pose.orientation.z, 4),
+                round(pose.orientation.w, 4),
+                get_state_response.types[pose_index],
+                len(get_state_response.poses),
+            ]
+
+            # Convert the quaternion to pitch and yaw angles and define a list for printing the state
+            _, pitch, yaw = euler_from_quaternion(
+                [pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w]
+            )
+            print_state = [state[0], state[1], state[2], round(degrees(pitch), 3), round(degrees(yaw), 3), state[7], state[8]]
+
+        # Otherwise, return a list with all zeros (invalid position and quaternion, bottle type, and empty workspace)
         else:
-            state = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-
-        # Add the number of items detected to the state representation
-        state.append(len(get_state_response.poses))
+            state = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0, 0]
+            print_state = state
 
         # Log the state
-        self.get_logger().info("State: " + str(state))
+        self.get_logger().warn(f"State: {print_state}; Index: {pose_index + 1}")
+
+        # Block the program until the user has notified that the  robot state has been set
+        self.get_logger().warn("Is the state accurate? (y/n)")
+        answer = input()
+
+        # If they do not click "Enter", notify the user
+        while answer != "y" and answer != "n":
+            self.get_logger().warn("You typed '" + str(answer) + "', type 'y' to use the current state and 'n' to retry")
+            answer = input()
+
+        # If the user wants to recapture the state
+        if answer == "n":
+            state = self.get_workspace_state()
 
         return state
 
@@ -243,9 +291,16 @@ class RecycRL(Node):
         # Round all the values in the list to 4 decimals
         rounded_pose = [round(x, 4) for x in pose_list]
 
+        self.get_logger().warn(f"Action: {rounded_pose}")
+
         return rounded_pose
 
-    def get_reward(self, prev_items, items):
+    def get_reward(self, state, action, next_state, valid=True, executed=True):
+        # If the action returned was valid, so the action was attempted, but it could not be executed,
+        # penalize the 'impossible' action with a reward of 0 and return
+        if valid and not executed:
+            return 0, False
+
         # Define "done" variable to be False initially, tracks whether episode has ended
         done = False
 
@@ -253,50 +308,77 @@ class RecycRL(Node):
         current_load = get_current_load()
 
         # Get the difference of items in the workspace after executing the action
-        item_diff = prev_items - items
+        item_diff = state[-1] - next_state[-1]
 
         # If there's one less item and current load is >200 mA, we grabbed successfully, assign a reward of 1
-        if item_diff == 1 and current_load > 200:
+        if item_diff == 1 and current_load > 160:
             reward = 1
 
             # If there are no more items, we have finished sorting, so set "done" to True
-            if items == 0:
+            if next_state[-1] == 0:
                 done = True
 
         # If one of the two conditions for determining a successful grasp is False, query the user for reward
-        elif (item_diff != 1 and current_load > 200) or (item_diff == 1 and current_load <= 200):
+        elif (item_diff != 1 and current_load > 160) or (item_diff == 1 and current_load <= 160):
             # Block the program until the user has given the reward for the transition
-            self.get_logger().warn("Unable to determine reward for action")
-            self.get_logger().warn("Enter reward (0 or 1)")
+            self.get_logger().warn(f"Unable to determine reward; Item Diff: {item_diff}; Current Load: {current_load} mA")
+            self.get_logger().warn("Enter reward (0, 1, or other)")
             reward = input()
 
             # If the user does not enter a correct reward
             while reward != "0" and reward != "1":
-                self.get_logger().warn("You typed '" + str(reward) + "', type '0' or '1' to record the reward and continue")
+                self.get_logger().warn(
+                    "You typed '" + str(reward) + "', type '0' or '1' to record the reward or 'other' for further calculation"
+                )
                 reward = input()
 
             # If there are no more items, we have finished sorting, so set "done" to True
-            if items == 0:
+            if next_state[-1] == 0:
                 done = True
 
         # In all other cases assign a reward of 0
         else:
-            reward = 0
+            # Calculate the distance between the gripper and object centroid
+            distance = np.linalg.norm(np.array(action[:3]) - np.array(state[:3]))
 
-        return int(reward), done
+            # Subtract the distance from 0.4, the target reach
+            target = 0.4 - distance
 
-    def add_to_buffer(self, state, action, next_state, reward, done):
+            # If the target reach is positive, calculate the distance-based reward
+            if target > 0:
+                reward = 0.5 * (target / 0.4)
+
+            # If the target reach is negative, assign a reward of 0
+            else:
+                reward = 0
+
+        self.get_logger().warn(f"Reward: {float(reward)}")
+
+        return float(reward), done
+
+    def add_to_buffer(self, state, action, next_state, reward, done, imitate=True):
+        # If in 'imitate' mode
+        if imitate:
+            # Block the program until the user has given the reward for the transition
+            self.get_logger().warn("Add previous state, action, transition, and reward to buffer? (Enter)")
+            answer = input()
+
+            # If they do not click "Enter", notify the user
+            while answer != "":
+                self.get_logger().warn("You typed '" + str(answer) + "', click 'Enter' to add to the buffer and continue")
+                answer = input()
+
         # Add to the replay buffer
         self.buffer.add(state, action, next_state, reward, done)
 
-        self.get_logger().info("State, action, transition, and reward added to replay buffer\n")
+        self.get_logger().info("State, action, transition, and reward added to replay buffer")
 
     def save_buffer(self):
         # Save the replay buffer and a copy of it
         np.save(self.buffer_path, self.buffer)
         np.save(self.buffer_path + "_copy", self.buffer)
 
-        self.get_logger().info("Saved the replay buffer successfully\n")
+        self.get_logger().info("Saved the replay buffer successfully")
 
     def go_to(self, position):
         # Define variables
@@ -329,13 +411,12 @@ class RecycRL(Node):
         else:
             return False
 
-    # (JK) Add retry
-    def execute_action(self, state, action):
+    def execute_action(self, state, action, initial_tolerance=0.01, tolerance_increase=0.01, max_tolerance=0.1):
         # Set executed to be False initially
         executed = False
 
         # Log the action to execute
-        self.get_logger().info("Action to execute: " + str(list(action)))
+        self.get_logger().warn("Action " + str(list(action)))
 
         # Convert the action from its 3-angle representation into a quaternion
         action = self.convert_action(action)
@@ -353,18 +434,67 @@ class RecycRL(Node):
                 # Log successful approach
                 self.get_logger().info("Successfully reached the approach position")
 
-                # Convert the action to a pose goal
-                position = construct_link_constraint(
-                    "tcp",
-                    "world",
-                    [action[0], action[1], action[2]],
-                    0.001,
-                    [action[3], action[4], action[5], action[6]],
-                    0.01,
-                )
+                # Encode the action position as a Pose() variable
+                pose = Pose()
+                pose.position.x = float(action[0])
+                pose.position.y = float(action[1])
+                pose.position.z = float(action[2])
+                pose.orientation.x = action[3]
+                pose.orientation.y = action[4]
+                pose.orientation.z = action[5]
+                pose.orientation.w = action[6]
+
+                # Try to find an IK solution
+                found_ik = self.robot_state.set_from_ik("manipulator", pose, "tcp", timeout=5.0)
+
+                # If an IK solution is found
+                if found_ik:
+                    # Extract the joint angles and define the joint goal
+                    joint_angles = self.robot_state.get_joint_group_positions("manipulator")
+                    action_position = self.construct_joint_position(joint_angles, initial_tolerance)
+
+                # If an IK solution is not found
+                if not found_ik:
+                    # Define the pose goal
+                    action_position = construct_link_constraint(
+                        "tcp",
+                        "world",
+                        [action[0], action[1], action[2]],
+                        initial_tolerance,
+                        [action[3], action[4], action[5], action[6]],
+                        initial_tolerance,
+                    )
 
                 # Pass the goal position to the move function
-                executed = self.go_to(position)
+                executed = self.go_to(action_position)
+
+                # Define the tolerance
+                tolerance = initial_tolerance + tolerance_increase
+
+                # Loop the following until the action succeeds or we reach the max retry attempts
+                while (not executed) and (tolerance <= max_tolerance):
+                    # If an IK solution is found
+                    if found_ik:
+                        # Reconstruct the joint goal with incrementally increasing tolerance
+                        action_position = self.construct_joint_position(joint_angles, tolerance)
+
+                    # If an IK solution is not found
+                    if not found_ik:
+                        # Redefine the lift position with an increased tolerance
+                        action_position = construct_link_constraint(
+                            "tcp",
+                            "world",
+                            [action[0], action[1], action[2]],
+                            tolerance,
+                            [action[3], action[4], action[5], action[6]],
+                            tolerance,
+                        )
+
+                    # Pass the action position to the move function
+                    executed = self.go_to(action_position)
+
+                    # Increase the tolerance and try the approach again
+                    tolerance += tolerance_increase
 
             # If the approach position could not be reached
             elif not approached:
@@ -379,22 +509,71 @@ class RecycRL(Node):
 
                 # If the user still wants to execute the action
                 if answer == "y":
-                    # Convert the action to a pose goal
-                    position = construct_link_constraint(
-                        "tcp",
-                        "world",
-                        [action[0], action[1], action[2]],
-                        0.001,
-                        [action[3], action[4], action[5], action[6]],
-                        0.01,
-                    )
+                    # Encode the action position as a Pose() variable
+                    pose = Pose()
+                    pose.position.x = float(action[0])
+                    pose.position.y = float(action[1])
+                    pose.position.z = float(action[2])
+                    pose.orientation.x = action[3]
+                    pose.orientation.y = action[4]
+                    pose.orientation.z = action[5]
+                    pose.orientation.w = action[6]
+
+                    # Try to find an IK solution
+                    found_ik = self.robot_state.set_from_ik("manipulator", pose, "tcp", timeout=5.0)
+
+                    # If an IK solution is found
+                    if found_ik:
+                        # Extract the joint angles and define the joint goal
+                        joint_angles = self.robot_state.get_joint_group_positions("manipulator")
+                        action_position = self.construct_joint_position(joint_angles, initial_tolerance)
+
+                    # If an IK solution is not found
+                    if not found_ik:
+                        # Define the pose goal
+                        action_position = construct_link_constraint(
+                            "tcp",
+                            "world",
+                            [action[0], action[1], action[2]],
+                            initial_tolerance,
+                            [action[3], action[4], action[5], action[6]],
+                            initial_tolerance,
+                        )
 
                     # Pass the goal position to the move function
-                    executed = self.go_to(position)
+                    executed = self.go_to(action_position)
 
-        return executed
+                    # Define the tolerance
+                    tolerance = initial_tolerance + tolerance_increase
 
-    def approach(self, action, approach_dist=0.18, initial_tolerance=0.1, tolerance_increase=0.01, max_tolerance=0.25):
+                    # Loop the following until the action succeeds or we reach the max retry attempts
+                    while (not executed) and (tolerance <= max_tolerance):
+                        # If an IK solution is found
+                        if found_ik:
+                            # Reconstruct the joint goal with incrementally increasing tolerance
+                            action_position = self.construct_joint_position(joint_angles, tolerance)
+
+                        # If an IK solution is not found
+                        if not found_ik:
+                            # Redefine the lift position with an increased tolerance
+                            action_position = construct_link_constraint(
+                                "tcp",
+                                "world",
+                                [action[0], action[1], action[2]],
+                                tolerance,
+                                [action[3], action[4], action[5], action[6]],
+                                tolerance,
+                            )
+
+                        # Pass the action position to the move function
+                        executed = self.go_to(action_position)
+
+                        # Increase the tolerance and try the approach again
+                        tolerance += tolerance_increase
+
+        return valid, executed
+
+    def approach(self, action, approach_dist=0.12, initial_tolerance=0.1, tolerance_increase=0.01, max_tolerance=0.3):
         # Position vector
         pos = np.array(action[0:3])
 
@@ -419,7 +598,7 @@ class RecycRL(Node):
         pose.orientation.w = action[6]
 
         # Try to find an IK solution
-        found_ik = self.robot_state.set_from_ik("manipulator", pose, "tcp", timeout=0.5)
+        found_ik = self.robot_state.set_from_ik("manipulator", pose, "tcp", timeout=5.0)
 
         # If an IK solution is found
         if found_ik:
@@ -472,16 +651,16 @@ class RecycRL(Node):
 
         return approached
 
-    def lift(self, height=0.10, initial_tolerance=0.01, tolerance_increase=0.01, max_tolerance=0.15):
+    def lift(self, z_extra=0.02, initial_tolerance=0.01, tolerance_increase=0.01, max_tolerance=0.3):
         # Get the current pose of the robot
         with self.planning_scene.read_only() as scene:
             pose = scene.current_state.get_pose("tcp")
 
         # Calculate the desired height to lift the gripper
-        pose.position.z = self.max_height + height
+        pose.position.z = self.second_max_height + (pose.position.z - 0.75) + z_extra
 
         # Try to find an IK solution
-        found_ik = self.robot_state.set_from_ik("manipulator", pose, "tcp", timeout=0.5)
+        found_ik = self.robot_state.set_from_ik("manipulator", pose, "tcp", timeout=5.0)
 
         # If an IK solution is found
         if found_ik:
@@ -554,42 +733,131 @@ class RecycRL(Node):
                 # Go to the bin
                 self.go_to(self.bin)
 
-            elif self.execution_status != "SUCCEEDED":
-                self.get_logger().error("Unable to lift gripper, trying again")
+            elif self.execution_status != "SUCCEEDED" or not lifted:
+                # Query the user if they would still like to execute the action
+                self.get_logger().warn("Could not reach lift, go to bin anyway (y/n)")
+                answer = input()
+
+                # If they do not type "y" or "n", notify the user
+                while answer != "y" and answer != "n":
+                    self.get_logger().warn("You typed '" + str(answer) + "', type 'y' to go to the bin or 'n' to cancel")
+                    answer = input()
+
+                # If the user still wants to go to the bin
+                if answer == "y":
+                    # Go to the bin
+                    self.go_to(self.bin)
 
         # If the gripper did not close, notify the user
         elif not closed:
             self.get_logger().warn("Failed to close gripper, check that gripper is powered\nGoing back home")
 
-    def distance_check(self, state, action, height=0.08, radius=0.06):
+    # def distance_check(self, state, action, height=0.08, radius=0.06):
+    #     # Define the gripper position and object position
+    #     gripper_position = np.array([action[0], action[1], action[2]])
+    #     object_position = np.array([state[0], state[1], state[2]])
+
+    #     # Get the rotation matrix from the quaternion
+    #     rotation_matrix = Rotation.from_quat([action[3], action[4], action[5], action[6]]).as_matrix()
+
+    #     # Get the slope of the 3D line for the cylinder by getting the third column vector (negative z-axis)
+    #     slope = -rotation_matrix[:, 2]
+
+    #     # Calculate the projection of the object position onto the slope line
+    #     projection = np.dot(slope, object_position - gripper_position)
+
+    #     # Convert projection back into 3D space
+    #     projection_3d = gripper_position + projection * slope
+
+    #     # Calculate the distance between the object position and its projection
+    #     proj_distance = np.linalg.norm(object_position - projection_3d)
+
+    #     # If the projection distance is less than the radius and the projection is within the height, return True
+    #     if (proj_distance <= radius) and (0.0 <= projection <= height):
+    #         result = True
+    #         self.get_logger().info(f"Distance check passed: radial distance: {proj_distance}; length distance: {projection}")
+
+    #     # If the check is not passed, return False and notify the user
+    #     else:
+    #         result = False
+    #         self.get_logger().info(f"Distance check failed: radial distance: {proj_distance}; length distance: {projection}")
+
+    #     return result
+
+    def distance_check(self, state, action, height=0.08, radius=0.10):
         # Define the gripper position and object position
         gripper_position = np.array([action[0], action[1], action[2]])
         object_position = np.array([state[0], state[1], state[2]])
 
-        # Get the rotation matrix from the quaternion
-        rotation_matrix = Rotation.from_quat([action[3], action[4], action[5], action[6]]).as_matrix()
+        # Get the gripper rotation matrix from the gripper's quaternion
+        gripper_rotation = Rotation.from_quat([action[3], action[4], action[5], action[6]]).as_matrix()
+
+        # Get the rotation matrix from the object's quaternion
+        object_rotation = Rotation.from_quat([state[3], state[4], state[5], state[6]]).as_matrix()
 
         # Get the slope of the 3D line for the cylinder by getting the third column vector (negative z-axis)
-        slope = -rotation_matrix[:, 2]
+        gripper_slope = -gripper_rotation[:, 2]
 
-        # Calculate the projection of the object position onto the slope line
-        projection = np.dot(slope, object_position - gripper_position)
+        # Get the slope of the 3D line for the object by getting the first column vector (negative x-axis)
+        object_slope = -object_rotation[:, 0]
 
-        # Convert projection back into 3D space
-        projection_3d = gripper_position + projection * slope
+        # Get the vector difference between the object and gripper position
+        difference = object_position - gripper_position
 
-        # Calculate the distance between the object position and its projection
-        proj_distance = np.linalg.norm(object_position - projection_3d)
+        # Get the correlation of the different vectors
+        slope_correlation = np.dot(object_slope, gripper_slope)
+        grip_difference_correlation = np.dot(difference, gripper_slope)
+        object_difference_correlation = np.dot(difference, object_slope)
+
+        # Calculate the denominator
+        denom = 1.0 - (slope_correlation**2)
+
+        # If the denominator is less than 0.000001, there is a large correlation so lines are nearly parallel
+        if abs(denom) < 1e-6:
+            # Set _ to 0
+            t_star = 0.0
+
+        # In all other cases calculate
+        else:
+            #
+            t_star = -(object_difference_correlation - grip_difference_correlation * slope_correlation) / denom
+
+        # If the object is a bottle, set the half length to the following (cm)
+        if state[7] == 0:
+            half_length = 0.12
+
+        # If the object is a can, set the half length to the following (cm)
+        elif state[7] == 1:
+            half_length = 0.07
+
+        # Clamp to segment
+        t_star = np.clip(t_star, -half_length, half_length)
+
+        # Get the closest point of the object to the gripper
+        closest_point = object_position + t_star * object_slope
+
+        # Calculate the projection of the closest point onto the gripper slope
+        closest_projection = np.dot(gripper_slope, closest_point - gripper_position)
+
+        # Convert the closest point projection back into 3D space
+        closest_projection_3d = gripper_position + closest_projection * gripper_slope
+
+        # Calculate the distance between the closest and its projection
+        closest_projection_distance = np.linalg.norm(closest_point - closest_projection_3d)
 
         # If the projection distance is less than the radius and the projection is within the height, return True
-        if (proj_distance <= radius) and (0.0 <= projection <= height):
+        if (closest_projection_distance <= radius) and (-0.05 <= closest_projection <= height):
             result = True
-            self.get_logger().info(f"Distance check passed: radial distance: {proj_distance}; length distance: {projection}")
+            self.get_logger().info(
+                f"Distance Check Passed; Radial Distance: {closest_projection_distance}; Length distance: {closest_projection}"
+            )
 
         # If the check is not passed, return False and notify the user
         else:
             result = False
-            self.get_logger().info(f"Distance check failed: radial distance: {proj_distance}; length distance: {projection}")
+            self.get_logger().info(
+                f"Distance Check Failed; Radial Distance: {closest_projection_distance}; Length distance: {closest_projection}"
+            )
 
         return result
 
@@ -825,9 +1093,9 @@ class RecycRL(Node):
 
         # Define the transforms for each collision box
         conveyor_pose = Pose()
-        conveyor_pose.position.x = 0.43
+        conveyor_pose.position.x = 0.545
         conveyor_pose.position.y = 0.0
-        conveyor_pose.position.z = 0.54
+        conveyor_pose.position.z = 0.535
         conveyor_pose.orientation.w = 1.0
         conveyor_collision.primitive_poses.append(conveyor_pose)
 
@@ -875,6 +1143,9 @@ class RecycRL(Node):
         self.planning_scene.process_collision_object(ur_collision)
 
     def loop_check(self):
+        # Print statement for looks
+        print("")
+
         # Spin the node to process parameter changes
         rclpy.spin_once(self, timeout_sec=0.01)
 

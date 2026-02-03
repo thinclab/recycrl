@@ -23,6 +23,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   DEPENDENCIES geometry_msgs
 )
 
+# Need to use "chmod +x" before it is recognized as executable
 install(
   PROGRAMS
     scripts/recycle.py
@@ -34,6 +35,7 @@ install(
     scripts/yolo_service.py
     scripts/yolo_client.py
     scripts/train.py
+    scripts/reset.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

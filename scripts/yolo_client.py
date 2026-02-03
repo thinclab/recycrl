@@ -44,14 +44,17 @@ class YOLOClient(Node):
         future.add_done_callback(partial(self.service_callback))
 
     def service_callback(self, future):
+        # Define list to convert integer representation of type to string
+        type = ["Bottle", "Can"]
+
         try:
             # Retrieve the result from the response
             response = future.result()
 
             # If one or more objects was detected, print the results
             if len(response.poses) > 0:
-                for pose in response.poses:
-                    print(f"Object #{response.poses.index(pose) + 1}\n-----------")
+                for i, pose in enumerate(response.poses):
+                    print(f"Object #{i + 1} - {type[response.types[i]]}\n-------------------")
                     print(
                         f"Position:     X: {round(pose.position.x, 3)}  "
                         f"Y: {round(pose.position.y, 3)}  "

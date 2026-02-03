@@ -21,7 +21,7 @@ def main():
         default="~/RD3/Replay_Buffer",
         help="Path to save the replay buffer with demonstrations",
     )
-    parser.add_argument("-state_dim", dest="state_dim", default="8", help="Dimension size of state")
+    parser.add_argument("-state_dim", dest="state_dim", default="9", help="Dimension size of state")
     parser.add_argument("-action_dim", dest="action_dim", default="6", help="Dimension size of action")
 
     # Parse and assign arguments
@@ -85,21 +85,19 @@ def main():
             next_state = imitate.get_workspace_state()
 
             # Get the reward of the action
-            reward, done = imitate.get_reward(state[-1], next_state[-1])
+            reward, done = imitate.get_reward(state, action, next_state)
 
             # After getting the reward, open the gripper
             imitate.open_gripper()
 
             # Save the state, action, transition, and reward to the replay buffer
-            imitate.add_to_buffer(state, action, next_state, reward, done)
+            imitate.add_to_buffer(state, action, next_state, reward, done, True)
 
             # Assign the next state to the current state for the next iteration, more efficient
             state = next_state
 
-            # If the buffer size is divisible by 10
-            if imitate.buffer.size % 10 == 0:
-                # Save the buffer incrementally
-                imitate.save_buffer()
+            # Save the buffer
+            imitate.save_buffer()
 
             # Check if the loop should continue
             run = imitate.loop_check()

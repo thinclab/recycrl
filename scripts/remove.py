@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-This script simplifies the process of loading the Replay Buffer and sampling data from it
+This script loads the replay buffer at the specified path and removes an entry
 """
 
 import os
@@ -11,7 +11,7 @@ from argparse import ArgumentParser
 
 def main():
     # Define arguments
-    description = "Script to simplify the data collection process for the replay buffer"
+    description = "Script to remove entries from the replay buffer"
     parser = ArgumentParser(description=description)
     parser.add_argument(
         "-buffer_path",
@@ -19,12 +19,10 @@ def main():
         default="~/RD3/Replay_Buffer",
         help="Path to save the replay buffer with demonstrations",
     )
-    parser.add_argument("-sample_num", dest="sample_num", default="10", help="Number of samples to take")
 
     # Parse and assign arguments
     args = parser.parse_args()
     buffer_path = args.buffer_path
-    sample_number = int(args.sample_num)
 
     # Expand the user to handle "~"
     buffer_path = os.path.expanduser(buffer_path)
@@ -33,17 +31,20 @@ def main():
     buffer = np.load(buffer_path + ".npy", allow_pickle=True).item()
 
     # Print the size of the buffer
-    print(f"Buffer Size: {buffer.size}")
+    print(f"Buffer size before: {buffer.size}")
 
-    # Sample from the buffer
-    tensors = buffer.sample(sample_number)
+    # Remove the last entry in the buffer
+    buffer.remove_last()
 
-    # Print the samples
-    for tensor in tensors:
-        print("")
-        samples = tensor.detach().cpu().numpy()
-        for sample in samples:
-            print(sample)
+    # Print that removal was successful
+    print("Removed last entry")
+
+    # Save the replay buffer and a copy of it
+    np.save(buffer_path, buffer)
+    np.save(buffer_path + "_copy", buffer)
+
+    # Print the size of the buffer
+    print(f"New buffer size: {buffer.size}")
 
 
 if __name__ == "__main__":
