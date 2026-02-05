@@ -2,18 +2,17 @@
 
 """
 This script provides the main Class and all of the functions for capturing state transitions for
-the replay buffer and training the robot with RD3 RL to sort recyclables (train.py and imitate.py)
+the replay buffer and training the robot with RD3 RL to sort recyclables (train.py, imitate.py, and generate.py)
 """
 
-import os
 import rclpy
+import torch
 import numpy as np
 from time import sleep
 from math import degrees
 from rclpy.node import Node
-from recycrl.srv import Poses
-from TD3.utils import ReplayBuffer
 from geometry_msgs.msg import Pose
+from recycrl.srv import Recyclables
 from lifecycle_msgs.msg import Transition
 from shape_msgs.msg import SolidPrimitive
 from moveit_msgs.msg import CollisionObject
@@ -30,7 +29,7 @@ from moveit.core.kinematic_constraints import construct_joint_constraint, constr
 
 
 class RecycRL(Node):
-    def __init__(self, buffer_path, state_dim=9, action_dim=6):
+    def __init__(self, state_dim=9, action_dim=6):
         # Register the ROS2 Node
         super().__init__("recycrl")
 
@@ -42,30 +41,20 @@ class RecycRL(Node):
         self.get_logger().set_level(LoggingSeverity.INFO)
 
         # Define global variables
-        self.buffer_path = buffer_path
         self.execution_status = None
         self.executed = False
         self.second_max_height = 0.0
 
-        # If the replay buffer does not exist, initialize a new ReplayBuffer() Class
-        if not os.path.exists(buffer_path + ".npy"):
-            os.makedirs(os.path.dirname(buffer_path), exist_ok=True)
-            self.buffer = ReplayBuffer(state_dim, action_dim, max_size=int(1e6))
-
-        # If the replay buffer exists, load the Class
-        else:
-            self.buffer = np.load(buffer_path + ".npy", allow_pickle=True).item()
-
         # Define requests and clients
-        self.get_poses_request = Poses.Request()
+        self.get_recyclables_request = Recyclables.Request()
         self.get_state_request = GetState.Request()
         self.change_state_request = ChangeState.Request()
-        self.get_poses_client = self.create_client(Poses, "/get_poses")
+        self.get_recyclables_client = self.create_client(Recyclables, "/get_recyclables")
         self.get_state_client = self.create_client(GetState, "/robot_manager/get_state")
         self.change_state_client = self.create_client(ChangeState, "/robot_manager/change_state")
 
         # Wait for the services to become available
-        while not self.get_poses_client.wait_for_service(4.0):
+        while not self.get_recyclables_client.wait_for_service(4.0):
             self.get_logger().info("Waiting for YOLO service ...")
         while not self.get_state_client.wait_for_service(4.0):
             self.get_logger().info("Waiting for robot get state service ...")
@@ -103,9 +92,6 @@ class RecycRL(Node):
         self.bin = self.construct_joint_position([-1.5708, -1.13446, 1.48353, 0.0, 1.22173, -1.5708])
         self.hidden = self.construct_joint_position([-1.5708, -1.5708, 1.5708, 0.0, 1.5708, 0.0])
 
-        # Logging for buffer size
-        self.get_logger().info("Buffer ready with size of " + str(self.buffer.size))
-
     def trajectory_callback(self, msg):
         # Assign the message to the global variable
         self.execution_status = msg.status
@@ -126,65 +112,50 @@ class RecycRL(Node):
 
     def get_workspace_state(self):
         # Call the get poses service, spin the Node until a response is received, and define the response
-        get_poses_future = self.get_poses_client.call_async(self.get_poses_request)
-        rclpy.spin_until_future_complete(self, get_poses_future)
-        get_state_response = get_poses_future.result()
+        get_recyclables_future = self.get_recyclables_client.call_async(self.get_recyclables_request)
+        rclpy.spin_until_future_complete(self, get_recyclables_future)
+        get_state_response = get_recyclables_future.result()
+        
+        # Extract the different parts of the response
+        poses = get_state_response.poses
+        types = get_state_response.types
+        heights = get_state_response.heights
 
-        # Define variable to choose index or object for state
+        # Define variables to choose index or object for state
         pose_index = 0
+        tallest_index = 0
 
         # Check that the service returned at least one pose
-        if get_state_response.poses:
-            # Define a list to hold each object's height
-            heights = []
-            pitchy = False
+        if poses:
+            # If there are more than two objects
+            if len(heights) > 1:
+                # Get the index of the tallest object
+                tallest_index = heights.index(max(heights))
+
+                # Remove the tallest item from the list and get the new max for the "second max" value
+                heights.pop(tallest_index)
+                self.second_max_height = max(heights)
+
+            # If there is one item
+            elif len(heights) == 1:
+                # Set the "second max" value to 0.75 (conveyor height)
+                self.second_max_height = 0.75
 
             # Iterate through each pose
-            for i, poses in enumerate(get_state_response.poses):
+            for i, pose in enumerate(poses):
                 # Extract the pitch angle from the quaternion
                 _, pitch, _ = euler_from_quaternion(
-                    [poses.orientation.x, poses.orientation.y, poses.orientation.z, poses.orientation.w]
+                    [pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w]
                 )
 
                 # If the pitch of the object is less than 0 (if the object is tilted and not lying flat)
                 if pitch < 0.0:
-                    # Double the height of the object
-                    height = 0.75 + ((poses.position.z - 0.75) * 2)
+                    # Set the pose index to that of the tallest object so that this object is chosen
+                    pose_index = tallest_index
+                    continue
 
-                    # Set the "pitchy" variable to True for logic
-                    pitchy = True
-
-                # In all other cases
-                else:
-                    # The height is just the z position
-                    height = poses.position.z
-
-                # Append the current height to the list
-                heights.append(height)
-
-            # If there are angled objects
-            if pitchy:
-                # If there is more than one item in the list
-                if len(heights) > 1:
-                    # Assign the index of the tallest object so this object is used for state representation
-                    pose_index = heights.index(max(heights))
-
-                    # Remove the maximum value from the list and get the new max for the "second max" value
-                    heights.pop(pose_index)
-                    self.second_max_height = max(heights)
-
-                # If there is one item in the list
-                elif len(heights) == 1:
-                    # Set the "second max" value to 0.75 (conveyor height)
-                    self.second_max_height = 0.75
-
-            # If there are no angled objects
-            elif not pitchy:
-                # Set the second max height variable accordingly
-                self.second_max_height = 0.83
-
-            # Get the pose with the largest pitch
-            pose = get_state_response.poses[pose_index]
+            # Get the pose of the tallest object or the highest confidence
+            pose = poses[pose_index]
 
             # Convert the pose into a list and add the object type and number of items in the workspace
             state = [
@@ -195,8 +166,8 @@ class RecycRL(Node):
                 round(pose.orientation.y, 4),
                 round(pose.orientation.z, 4),
                 round(pose.orientation.w, 4),
-                get_state_response.types[pose_index],
-                len(get_state_response.poses),
+                types[pose_index],
+                len(poses),
             ]
 
             # Convert the quaternion to pitch and yaw angles and define a list for printing the state
@@ -356,7 +327,81 @@ class RecycRL(Node):
 
         return float(reward), done
 
-    def add_to_buffer(self, state, action, next_state, reward, done, imitate=True):
+    # def get_reward(self, state, action, next_state, valid=True, approached=True, executed=True, radius=0.0, length=0.0):
+    #     # If the action returned was valid, so the action was attempted, it reached the approach, 
+    #     # but it could not be executed, penalize the 'impossible' action with a reward of 0 and return
+    #     # if valid and not executed:
+    #     #     self.get_logger().warn(f"Reward: 0")
+    #     #     return 0, False
+
+    #     # Define "done" variable to be False initially, tracks whether episode has ended
+    #     done = False
+
+    #     # Get the current load (mA) of the gripper after lifting
+    #     current_load = get_current_load()
+
+    #     # Get the difference of items in the workspace after executing the action
+    #     item_diff = state[-1] - next_state[-1]
+
+    #     # If there's one less item and current load is >200 mA, we grabbed successfully, assign a reward of 1
+    #     if item_diff == 1 and current_load > 160:
+    #         reward = 1
+
+    #         # If there are no more items, we have finished sorting, so set "done" to True
+    #         if next_state[-1] == 0:
+    #             done = True
+
+    #     # If one of the two conditions for determining a successful grasp is False, query the user for reward
+    #     elif (item_diff != 1 and current_load > 160) or (item_diff == 1 and current_load <= 160):
+    #         # Block the program until the user has given the reward for the transition
+    #         self.get_logger().warn(f"Unable to determine reward; Item Diff: {item_diff}; Current Load: {current_load} mA")
+    #         self.get_logger().warn("Enter reward (0, 1, or other)")
+    #         reward = input()
+
+    #         # If the user does not enter a correct reward
+    #         while reward != "0" and reward != "1":
+    #             self.get_logger().warn(
+    #                 "You typed '" + str(reward) + "', type '0' or '1' to record the reward or 'other' for further calculation"
+    #             )
+    #             reward = input()
+
+    #         # If there are no more items, we have finished sorting, so set "done" to True
+    #         if next_state[-1] == 0:
+    #             done = True
+
+    #     # In all other cases
+    #     else:
+    #         distance_reward = 0
+    #         distance = np.linalg.norm(np.array(action[:3]) - np.array(state[:3]))
+    #         distance_target = 0.3 - distance
+    #         if distance_target >= 0:
+    #             distance_reward = distance_target / 0.3
+    #         # radius_target = 0.1 - radius
+    #         # length_target = 0.08 - abs(length)
+    #         # if radius_target > 0 and length_target > 0:
+    #         #     distance_reward = 0.5 * ((radius_target / 0.1) + (length_target / 0.08))
+            
+    #         orientation_reward = 0
+    #         action = self.convert_action(action)
+    #         object_rotation = Rotation.from_quat([state[3], state[4], state[5], state[6]]).as_matrix()
+    #         gripper_rotation = Rotation.from_quat([action[3], action[4], action[5], action[6]]).as_matrix()
+    #         gripper_slope = gripper_rotation[:, 2]
+    #         object_slope = object_rotation[:, 2]
+    #         orientation_target = np.dot(gripper_slope, object_slope) - 0.75
+    #         if orientation_target >= 0:
+    #             orientation_reward = orientation_target / 0.75
+
+    #         reward = 0.25 * (distance_reward + orientation_reward)
+    #         # # If the action returned was valid, so the action was attempted, but it could not reach the approach,
+    #         # # but it could be executed, penalize actions with bad grab orientations, only for unsuccessful grab
+    #         # if valid and not approached and executed:
+    #         #     reward *= 0.2
+
+    #     self.get_logger().warn(f"Reward: {float(reward)}")
+
+    #     return float(reward), done
+
+    def add_to_buffer(self, buffer, state, action, next_state, reward, done, imitate=True):
         # If in 'imitate' mode
         if imitate:
             # Block the program until the user has given the reward for the transition
@@ -369,16 +414,30 @@ class RecycRL(Node):
                 answer = input()
 
         # Add to the replay buffer
-        self.buffer.add(state, action, next_state, reward, done)
+        buffer.add(state, action, next_state, reward, done)
 
         self.get_logger().info("State, action, transition, and reward added to replay buffer")
 
-    def save_buffer(self):
+    def save_buffer(self, buffer, buffer_path):
         # Save the replay buffer and a copy of it
-        np.save(self.buffer_path, self.buffer)
-        np.save(self.buffer_path + "_copy", self.buffer)
+        np.save(buffer_path, buffer)
+        np.save(buffer_path + "_copy", buffer)
 
         self.get_logger().info("Saved the replay buffer successfully")
+
+    def sample_from_buffers(self, expert_buffer, online_buffer, expert_batch_size=100, online_batch_size=100):
+        # Sample from each buffer the corresponding amount of samples
+        e_state, e_action, e_next_state, e_reward, e_not_done = expert_buffer.sample(expert_batch_size)
+        o_state, o_action, o_next_state, o_reward, o_not_done = online_buffer.sample(online_batch_size)
+
+        # Combine the samples
+        state = torch.cat([e_state, o_state], dim=0)
+        action = torch.cat([e_action, o_action], dim=0)
+        next_state = torch.cat([e_next_state, o_next_state], dim=0)
+        reward = torch.cat([e_reward, o_reward], dim=0)
+        not_done = torch.cat([e_not_done, o_not_done], dim=0)
+        
+        return (state, action, next_state, reward, not_done)
 
     def go_to(self, position):
         # Define variables
@@ -405,14 +464,27 @@ class RecycRL(Node):
                 self.get_logger().warn("Stopped execution")
                 self.trajectory_manager.stop_execution()
 
-            return True
+        executed = True if self.execution_status == "SUCCEEDED" else False
+        self.execution_status = None
 
-        # Otherwise, return False
-        else:
-            return False
+        return executed
+
+    def select_random_action(self, min_action, max_action):
+        # Convert the lists representing action bounds to arrays
+        min_action = np.array(min_action)
+        max_action = np.array(max_action)
+        
+        # Sample a random action
+        action = np.random.uniform(min_action, max_action)
+        
+        # Round the action to 8 decimals
+        action = np.round(action, decimals=8)
+        
+        return action
 
     def execute_action(self, state, action, initial_tolerance=0.01, tolerance_increase=0.01, max_tolerance=0.1):
-        # Set executed to be False initially
+        # Set approached and executed to be False initially
+        approached = False
         executed = False
 
         # Log the action to execute
@@ -422,7 +494,7 @@ class RecycRL(Node):
         action = self.convert_action(action)
 
         # First check that the action is valid with a distance check
-        valid = self.distance_check(state, action)
+        valid, radius, length = self.distance_check(state, action)
 
         # If the action is valid
         if valid:
@@ -571,7 +643,7 @@ class RecycRL(Node):
                         # Increase the tolerance and try the approach again
                         tolerance += tolerance_increase
 
-        return valid, executed
+        return valid, approached, executed, radius, length
 
     def approach(self, action, approach_dist=0.12, initial_tolerance=0.1, tolerance_increase=0.01, max_tolerance=0.3):
         # Position vector
@@ -726,14 +798,14 @@ class RecycRL(Node):
             lifted = self.lift()
 
             # Check that the lift action succeeded
-            if self.execution_status == "SUCCEEDED" and lifted:
+            if lifted:
                 # Log successful lift
                 self.get_logger().info("Successfully reached the lift position")
 
                 # Go to the bin
                 self.go_to(self.bin)
 
-            elif self.execution_status != "SUCCEEDED" or not lifted:
+            elif not lifted:
                 # Query the user if they would still like to execute the action
                 self.get_logger().warn("Could not reach lift, go to bin anyway (y/n)")
                 answer = input()

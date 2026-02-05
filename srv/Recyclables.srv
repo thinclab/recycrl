@@ -1,0 +1,9 @@
+---
+# Array of 3D position and orientation for bottles and cans
+geometry_msgs/Pose[] poses
+
+# Corresponding array of the type of recyclable (0 = bottle; 1 = can)
+uint8[] types
+
+# Corresponding array of the maximum measured height of each object
+float32[] heights

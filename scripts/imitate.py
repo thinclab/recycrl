@@ -7,19 +7,22 @@ for the corresponding state. The transition and reward is recorded and all data 
 
 import os
 import rclpy
+import numpy as np
 from recycRL import RecycRL
+from TD3.utils import ReplayBuffer
 from argparse import ArgumentParser
+from rclpy.logging import get_logger
 
 
 def main():
     # Define arguments
-    description = "Node to simplify the data collection process for the replay buffer"
+    description = "Node to simplify the data collection process for the expert replay buffer"
     parser = ArgumentParser(description=description)
     parser.add_argument(
         "-buffer_path",
         dest="buffer_path",
-        default="~/RD3/Replay_Buffer",
-        help="Path to save the replay buffer with demonstrations",
+        default="~/RD3/Expert_Buffer",
+        help="Path to load and save the expert replay buffer with demonstrations",
     )
     parser.add_argument("-state_dim", dest="state_dim", default="9", help="Dimension size of state")
     parser.add_argument("-action_dim", dest="action_dim", default="6", help="Dimension size of action")
@@ -33,13 +36,26 @@ def main():
     # Expand the user to handle "~"
     buffer_path = os.path.expanduser(buffer_path)
 
+    # If the expert replay buffer does not exist, initialize a new ReplayBuffer() Class
+    if not os.path.exists(buffer_path + ".npy"):
+        os.makedirs(os.path.dirname(buffer_path), exist_ok=True)
+        buffer = ReplayBuffer(state_dim, action_dim, max_size=int(1e6))
+
+    # If the replay buffer exists, load the Class
+    else:
+        buffer = np.load(buffer_path + ".npy", allow_pickle=True).item()
+
+    # Logging for buffer size
+    logger = get_logger("imitate")
+    logger.info("Buffer ready with size of " + str(buffer.size))
+
     # Initialize rclpy
     rclpy.init()
 
     # Try the following
     try:
         # Initialize the Imitate Node
-        imitate = RecycRL(buffer_path, state_dim, action_dim)
+        imitate = RecycRL(state_dim, action_dim)
 
         # Move the robot to the hidden state so that the workspace can be seen clearly
         imitate.go_to(imitate.bin)
@@ -91,19 +107,19 @@ def main():
             imitate.open_gripper()
 
             # Save the state, action, transition, and reward to the replay buffer
-            imitate.add_to_buffer(state, action, next_state, reward, done, True)
+            imitate.add_to_buffer(buffer, state, action, next_state, reward, done, True)
 
             # Assign the next state to the current state for the next iteration, more efficient
             state = next_state
 
             # Save the buffer
-            imitate.save_buffer()
+            imitate.save_buffer(buffer, buffer_path)
 
             # Check if the loop should continue
             run = imitate.loop_check()
 
         # Save the buffer after exiting the loop
-        imitate.save_buffer()
+        imitate.save_buffer(buffer, buffer_path)
 
     # If there is an exception with the loop, notify the user
     except Exception as e:

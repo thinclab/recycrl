@@ -19,7 +19,7 @@ if(BUILD_TESTING)
 endif()
 
 rosidl_generate_interfaces(${PROJECT_NAME}
-  "srv/Poses.srv"
+  "srv/Recyclables.srv"
   DEPENDENCIES geometry_msgs
 )
 
@@ -36,6 +36,7 @@ install(
     scripts/yolo_client.py
     scripts/train.py
     scripts/reset.py
+    scripts/generate.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

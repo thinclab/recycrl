@@ -7,20 +7,22 @@ using Principal Component Analysis (PCA). Finally, it calculates the pitch angle
 of two endpoints on the bottle.
 """
 
+import os
+import cv2
 import rclpy
 import matplotlib
 import numpy as np
-from time import sleep
 from pathlib import Path
 import supervision as sv
 from rclpy.node import Node
 from rclpy.time import Time
 from ultralytics import YOLO
 from math import degrees, pi
+from time import time, sleep
 from threading import Thread
-from recycrl.srv import Poses
 from cv_bridge import CvBridge
 from cv2 import imwrite, imread
+from recycrl.srv import Recyclables
 from argparse import ArgumentParser
 from rclpy.duration import Duration
 from sklearn.decomposition import PCA
@@ -63,6 +65,12 @@ def main():
     parser.add_argument(
         "--use_test_data", dest="use_test_data", action="store_true", help="Use the test data rather than live images"
     )
+    parser.add_argument(
+        "--capture_images", dest="capture_images", action="store_true", help="Save the image when the service is called"
+    )
+    parser.add_argument(
+        "-data_dir", dest="data_dir", default="~/Workspace_Images", help="Directory where the captured images will be saved"
+    )
 
     # Parse and assign arguments
     args = parser.parse_args()
@@ -71,10 +79,15 @@ def main():
     debug = args.debug
     save_test_data = args.save_test_data
     use_test_data = args.use_test_data
+    capture_images = args.capture_images
+    data_dir = args.data_dir
+
+    # Expand the user to handle "~"
+    data_dir = os.path.expanduser(data_dir)
 
     # Initialize rclpy and the YOLOService Node
     rclpy.init()
-    yolo_srv = YOLOService(weights, output, debug, save_test_data, use_test_data)
+    yolo_srv = YOLOService(weights, output, debug, save_test_data, use_test_data, capture_images, data_dir)
 
     # Try to spin the node
     try:
@@ -90,7 +103,7 @@ def main():
 
 
 class YOLOService(Node):
-    def __init__(self, weights, output, debug, save_test_data, use_test_data):
+    def __init__(self, weights, output, debug, save_test_data, use_test_data, capture_images, data_dir):
         # Register the ROS2 Node
         super().__init__("yolo_service")
 
@@ -100,6 +113,8 @@ class YOLOService(Node):
         self.output_path = output
         self.save_test_data = save_test_data
         self.use_test_data = use_test_data
+        self.capture_images = capture_images
+        self.data_dir = data_dir
 
         # Define the Cv Bridge, image annotators, and camera model
         self.bridge = CvBridge()
@@ -114,7 +129,7 @@ class YOLOService(Node):
         self.sync_sub.registerCallback(self.sub_callback)
 
         # Create a service for getting the 3D object locations
-        self.service = self.create_service(Poses, "/get_poses", self.get_poses)
+        self.service = self.create_service(Recyclables, "/get_recyclables", self.get_recyclables)
 
         # Define global variable for storing the most recent images and camera data
         self.rgb = None
@@ -142,6 +157,13 @@ class YOLOService(Node):
         self.tf = self.camera_model.get_tf_frame()
         self.depth_height = depth_info.height
         self.depth_width = depth_info.width
+
+        # If the user specifies "capture_images"
+        if self.capture_images:
+            # If the data directory doesn't exist
+            if not os.path.exists(data_dir):
+                # Create the directory
+                os.makedirs(data_dir)
 
     def sub_callback(self, rgb_msg, depth_msg):
         # Assign the most recent RGB and depth images to the global variables
@@ -174,9 +196,10 @@ class YOLOService(Node):
             except ConnectivityException:
                 self.get_logger().info("Transform Connectivity Exception, trying again")
 
-    def get_poses(self, msg, response):
+    def get_recyclables(self, msg, response):
         # If debug mode was specified
         if self.debug:
+            t0 = time()
             self.get_logger().info("Request received")
 
         # If no new image has been received or if the camera transform has not been defined, return an empty response
@@ -197,12 +220,16 @@ class YOLOService(Node):
             rgb_image = imread(f"{self.output_path}/rgb_test.png")
             depth_image = imread(f"{self.output_path}/depth_test.png")
 
+        # If the user sets "capture_images" to True, the script will save images to an output directory
+        if self.capture_images:
+            self.capture_image()
+
         # Reset the global image so that it represents the most recent image
         self.rgb = None
         self.depth = None
 
         # Pass the copied image to the model to detect objects (This takes 1 extra second to load on first request)
-        prediction = self.model.predict(rgb_image, conf=0.5, verbose=False)[0]
+        prediction = self.model.predict(rgb_image, conf=0.6, verbose=False)[0]
 
         # Get the labels and detections from the model output
         detections = sv.Detections.from_ultralytics(prediction)
@@ -257,12 +284,6 @@ class YOLOService(Node):
             plot_axes.append(principal_axis)
             yaw_angle = np.arctan2(-principal_axis[1], -principal_axis[0])
 
-            # Constrict the yaw angle to be between -90 and 90 degrees
-            if yaw_angle > pi / 2:
-                yaw_angle -= pi
-            elif yaw_angle < -pi / 2:
-                yaw_angle += pi
-
             # Append the yaw angle to the list
             yaw_angles.append(yaw_angle)
 
@@ -275,9 +296,25 @@ class YOLOService(Node):
             max_projection_point = projection_points.max()
             length = max_projection_point - min_projection_point
 
-            # Move the endpoints inward by 20% of the length to avoid noisy endpoints
-            min_projection_point = min_projection_point + length * 0.2
-            max_projection_point = max_projection_point - length * 0.2
+            # If the current mask is a bottle
+            if prediction.boxes.cls[i] == 0:
+                # Move the endpoints inward by 22% of the length to avoid noisy endpoints
+                min_projection_point = min_projection_point + length * 0.25
+                max_projection_point = max_projection_point - length * 0.25
+
+                # # Move the points inward by 25% of the mass to avoid noisy endpoints
+                # min_projection_point = np.percentile(projection_points, 25)
+                # max_projection_point = np.percentile(projection_points, 75)
+
+            # If the current mask is a can
+            if prediction.boxes.cls[i] == 1:
+                # Move the endpoints inward by 18% of the length to avoid noisy endpoints
+                min_projection_point = min_projection_point + length * 0.18
+                max_projection_point = max_projection_point - length * 0.18
+
+                # # Move the points inward by 20% of the mass to avoid noisy endpoints
+                # min_projection_point = np.percentile(projection_points, 20)
+                # max_projection_point = np.percentile(projection_points, 80)
 
             # Convert from principal axis -> mask shape coordinates -> image coordinates, then append the endpoint pair
             min_end = pca.mean_ + min_projection_point * principal_axis
@@ -369,6 +406,14 @@ class YOLOService(Node):
                 # Append the calculated pitch for the pair of endpoints to the running list
                 pitch_angles.append(pitch_angle)
 
+                # If the minimum endpoint is higher than the maximum endpoint
+                if endpoint_poses[0].position.z > endpoint_poses[1].position.z:
+                    # Flip the yaw angle
+                    if yaw_angles[i] > 0:
+                        yaw_angles[i] -= pi
+                    elif yaw_angles[i] < 0:
+                        yaw_angles[i] += pi
+
         # If the user specifies debug mode
         if self.debug:
             # Print statements for the extracted yaw and pitch angles
@@ -381,16 +426,27 @@ class YOLOService(Node):
             # Transform the 3D position of the centroid in camera frame to world frame, pass corresponding pitch and yaw
             pose = self.transform_to_world(centroid_position, pitch_angles[i], yaw_angles[i])
 
+            # Get the maximum height of the mask
+            max_height, _ = self.get_mask_max(depth_image, masks[i])
+
+            # Append the current max height to the list in the response
+            response.heights.append(max_height)
+
             # If the pitch is -90 degrees (standing upright) or if the z position is too high
             if pitch_angles[i] == -pi / 2 or pose.position.z > 0.9:
-                # Get the maximum height of the mask
-                max_height, _ = self.get_mask_max(depth_image, masks[i])
-
                 # The centroid is top of object, so set z position to be halfway between conveyor and top of object
                 pose.position.z = 0.75 + ((max_height - 0.75) / 2)
 
             # Add the poses to the list
             response.poses.append(pose)
+
+        # Assign the mask types to the service response
+        response.types = [int(i) for i in prediction.boxes.cls.detach().cpu().tolist()]
+
+        # If debug mode was specified
+        if self.debug:
+            t1 = time()
+            self.get_logger().info(f"Processing Time: {t1-t0}")
 
         return response
 
@@ -542,6 +598,34 @@ class YOLOService(Node):
         fig.tight_layout()
         fig.savefig(f"{self.output_path}/pca.png", dpi=300)
         plt.close(fig)
+
+    def capture_image(self):
+        # Get the list of previously saved images
+        images = os.listdir(self.data_dir)
+
+        # If images exist
+        if images:
+            # Define variable to be assigned locally
+            largest_image_number = 0
+
+            # Go through each image
+            for image in images:
+                # Extract the number from the image name
+                image_number = int(image[len("image_") : -len(".png")])
+
+                # If the current image number is greater than the largest, assign this to be the new largest
+                if image_number > largest_image_number:
+                    largest_image_number = image_number
+
+            # Define the image name
+            self.image_name = f"image_{largest_image_number + 1}"
+
+        # If there are no images, create the first one
+        else:
+            self.image_name = "image_0"
+
+        # Save the image
+        cv2.imwrite(f"{self.data_dir}/{self.image_name}.png", self.rgb)
 
 
 if __name__ == "__main__":

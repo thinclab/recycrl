@@ -8,7 +8,7 @@ import rclpy
 from math import degrees
 from rclpy.node import Node
 from functools import partial
-from recycrl.srv import Poses
+from recycrl.srv import Recyclables
 from argparse import ArgumentParser
 from tf_transformations import euler_from_quaternion
 
@@ -22,7 +22,7 @@ class YOLOClient(Node):
         self.once = once
 
         # Create a client to the YOLO Service
-        self.client = self.create_client(Poses, "/get_poses")
+        self.client = self.create_client(Recyclables, "/get_recyclables")
 
         # Wait until the service is ready
         while not self.client.wait_for_service(4.0):
@@ -39,7 +39,7 @@ class YOLOClient(Node):
 
     def send_request(self):
         # Define the request, call the service, and add a callback for when the request completes
-        request = Poses.Request()
+        request = Recyclables.Request()
         future = self.client.call_async(request)
         future.add_done_callback(partial(self.service_callback))
 

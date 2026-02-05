@@ -16,8 +16,8 @@ def main():
     parser.add_argument(
         "-buffer_path",
         dest="buffer_path",
-        default="~/RD3/Replay_Buffer",
-        help="Path to save the replay buffer with demonstrations",
+        default="~/RD3/Expert_Buffer",
+        help="Path to load and save the replay buffer with demonstrations",
     )
 
     # Parse and assign arguments
