@@ -37,6 +37,7 @@ install(
     scripts/train.py
     scripts/reset.py
     scripts/generate.py
+    scripts/clone.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

@@ -29,7 +29,7 @@ from moveit.core.kinematic_constraints import construct_joint_constraint, constr
 
 
 class RecycRL(Node):
-    def __init__(self, state_dim=9, action_dim=6):
+    def __init__(self):
         # Register the ROS2 Node
         super().__init__("recycrl")
 
@@ -115,7 +115,7 @@ class RecycRL(Node):
         get_recyclables_future = self.get_recyclables_client.call_async(self.get_recyclables_request)
         rclpy.spin_until_future_complete(self, get_recyclables_future)
         get_state_response = get_recyclables_future.result()
-        
+
         # Extract the different parts of the response
         poses = get_state_response.poses
         types = get_state_response.types
@@ -142,7 +142,7 @@ class RecycRL(Node):
                 self.second_max_height = 0.75
 
             # Iterate through each pose
-            for i, pose in enumerate(poses):
+            for pose in poses:
                 # Extract the pitch angle from the quaternion
                 _, pitch, _ = euler_from_quaternion(
                     [pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w]
@@ -266,12 +266,7 @@ class RecycRL(Node):
 
         return rounded_pose
 
-    def get_reward(self, state, action, next_state, valid=True, executed=True):
-        # If the action returned was valid, so the action was attempted, but it could not be executed,
-        # penalize the 'impossible' action with a reward of 0 and return
-        if valid and not executed:
-            return 0, False
-
+    def get_reward(self, state, next_state, valid=True):
         # Define "done" variable to be False initially, tracks whether episode has ended
         done = False
 
@@ -307,99 +302,19 @@ class RecycRL(Node):
             if next_state[-1] == 0:
                 done = True
 
-        # In all other cases assign a reward of 0
+        # If the current is not high enough and the item difference doesn't match one
         else:
-            # Calculate the distance between the gripper and object centroid
-            distance = np.linalg.norm(np.array(action[:3]) - np.array(state[:3]))
+            # If the action passed the distance check, give it a small reward
+            if valid:
+                reward = 0.25
 
-            # Subtract the distance from 0.4, the target reach
-            target = 0.4 - distance
-
-            # If the target reach is positive, calculate the distance-based reward
-            if target > 0:
-                reward = 0.5 * (target / 0.4)
-
-            # If the target reach is negative, assign a reward of 0
+            # In all other cases give it a reward of 0
             else:
                 reward = 0
 
         self.get_logger().warn(f"Reward: {float(reward)}")
 
         return float(reward), done
-
-    # def get_reward(self, state, action, next_state, valid=True, approached=True, executed=True, radius=0.0, length=0.0):
-    #     # If the action returned was valid, so the action was attempted, it reached the approach, 
-    #     # but it could not be executed, penalize the 'impossible' action with a reward of 0 and return
-    #     # if valid and not executed:
-    #     #     self.get_logger().warn(f"Reward: 0")
-    #     #     return 0, False
-
-    #     # Define "done" variable to be False initially, tracks whether episode has ended
-    #     done = False
-
-    #     # Get the current load (mA) of the gripper after lifting
-    #     current_load = get_current_load()
-
-    #     # Get the difference of items in the workspace after executing the action
-    #     item_diff = state[-1] - next_state[-1]
-
-    #     # If there's one less item and current load is >200 mA, we grabbed successfully, assign a reward of 1
-    #     if item_diff == 1 and current_load > 160:
-    #         reward = 1
-
-    #         # If there are no more items, we have finished sorting, so set "done" to True
-    #         if next_state[-1] == 0:
-    #             done = True
-
-    #     # If one of the two conditions for determining a successful grasp is False, query the user for reward
-    #     elif (item_diff != 1 and current_load > 160) or (item_diff == 1 and current_load <= 160):
-    #         # Block the program until the user has given the reward for the transition
-    #         self.get_logger().warn(f"Unable to determine reward; Item Diff: {item_diff}; Current Load: {current_load} mA")
-    #         self.get_logger().warn("Enter reward (0, 1, or other)")
-    #         reward = input()
-
-    #         # If the user does not enter a correct reward
-    #         while reward != "0" and reward != "1":
-    #             self.get_logger().warn(
-    #                 "You typed '" + str(reward) + "', type '0' or '1' to record the reward or 'other' for further calculation"
-    #             )
-    #             reward = input()
-
-    #         # If there are no more items, we have finished sorting, so set "done" to True
-    #         if next_state[-1] == 0:
-    #             done = True
-
-    #     # In all other cases
-    #     else:
-    #         distance_reward = 0
-    #         distance = np.linalg.norm(np.array(action[:3]) - np.array(state[:3]))
-    #         distance_target = 0.3 - distance
-    #         if distance_target >= 0:
-    #             distance_reward = distance_target / 0.3
-    #         # radius_target = 0.1 - radius
-    #         # length_target = 0.08 - abs(length)
-    #         # if radius_target > 0 and length_target > 0:
-    #         #     distance_reward = 0.5 * ((radius_target / 0.1) + (length_target / 0.08))
-            
-    #         orientation_reward = 0
-    #         action = self.convert_action(action)
-    #         object_rotation = Rotation.from_quat([state[3], state[4], state[5], state[6]]).as_matrix()
-    #         gripper_rotation = Rotation.from_quat([action[3], action[4], action[5], action[6]]).as_matrix()
-    #         gripper_slope = gripper_rotation[:, 2]
-    #         object_slope = object_rotation[:, 2]
-    #         orientation_target = np.dot(gripper_slope, object_slope) - 0.75
-    #         if orientation_target >= 0:
-    #             orientation_reward = orientation_target / 0.75
-
-    #         reward = 0.25 * (distance_reward + orientation_reward)
-    #         # # If the action returned was valid, so the action was attempted, but it could not reach the approach,
-    #         # # but it could be executed, penalize actions with bad grab orientations, only for unsuccessful grab
-    #         # if valid and not approached and executed:
-    #         #     reward *= 0.2
-
-    #     self.get_logger().warn(f"Reward: {float(reward)}")
-
-    #     return float(reward), done
 
     def add_to_buffer(self, buffer, state, action, next_state, reward, done, imitate=True):
         # If in 'imitate' mode
@@ -436,7 +351,7 @@ class RecycRL(Node):
         next_state = torch.cat([e_next_state, o_next_state], dim=0)
         reward = torch.cat([e_reward, o_reward], dim=0)
         not_done = torch.cat([e_not_done, o_not_done], dim=0)
-        
+
         return (state, action, next_state, reward, not_done)
 
     def go_to(self, position):
@@ -464,7 +379,10 @@ class RecycRL(Node):
                 self.get_logger().warn("Stopped execution")
                 self.trajectory_manager.stop_execution()
 
+        # If the most recent execution status is "SUCCEEDED", set executed to True; False otherwise
         executed = True if self.execution_status == "SUCCEEDED" else False
+
+        # Reset the execution status variable
         self.execution_status = None
 
         return executed
@@ -473,16 +391,16 @@ class RecycRL(Node):
         # Convert the lists representing action bounds to arrays
         min_action = np.array(min_action)
         max_action = np.array(max_action)
-        
+
         # Sample a random action
         action = np.random.uniform(min_action, max_action)
-        
+
         # Round the action to 8 decimals
         action = np.round(action, decimals=8)
-        
+
         return action
 
-    def execute_action(self, state, action, initial_tolerance=0.01, tolerance_increase=0.01, max_tolerance=0.1):
+    def execute_action(self, state, action, train=True, initial_tolerance=0.01, tolerance_increase=0.01, max_tolerance=0.1):
         # Set approached and executed to be False initially
         approached = False
         executed = False
@@ -494,7 +412,7 @@ class RecycRL(Node):
         action = self.convert_action(action)
 
         # First check that the action is valid with a distance check
-        valid, radius, length = self.distance_check(state, action)
+        valid = self.distance_check(state, action)
 
         # If the action is valid
         if valid:
@@ -570,17 +488,19 @@ class RecycRL(Node):
 
             # If the approach position could not be reached
             elif not approached:
-                # Query the user if they would still like to execute the action
-                self.get_logger().warn("Could not reach approach, execute action anyway (y/n)")
-                answer = input()
-
-                # If they do not type "y" or "n", notify the user
-                while answer != "y" and answer != "n":
-                    self.get_logger().warn("You typed '" + str(answer) + "', type 'y' to execute the action or 'n' to cancel")
+                # If we are not in 'train' mode
+                if not train:
+                    # Query the user if they would still like to execute the action
+                    self.get_logger().warn("Could not reach approach, execute action anyway (y/n)")
                     answer = input()
 
-                # If the user still wants to execute the action
-                if answer == "y":
+                    # If they do not type "y" or "n", notify the user
+                    while answer != "y" and answer != "n":
+                        self.get_logger().warn("You typed '" + str(answer) + "', type 'y' to execute the action or 'n' to cancel")
+                        answer = input()
+
+                # If we are in 'train' mode or if the user wants to execute the action despite not being in 'train' mode
+                if train or (not train and answer == "y"):
                     # Encode the action position as a Pose() variable
                     pose = Pose()
                     pose.position.x = float(action[0])
@@ -643,7 +563,7 @@ class RecycRL(Node):
                         # Increase the tolerance and try the approach again
                         tolerance += tolerance_increase
 
-        return valid, approached, executed, radius, length
+        return valid, executed
 
     def approach(self, action, approach_dist=0.12, initial_tolerance=0.1, tolerance_increase=0.01, max_tolerance=0.3):
         # Position vector
@@ -824,39 +744,7 @@ class RecycRL(Node):
         elif not closed:
             self.get_logger().warn("Failed to close gripper, check that gripper is powered\nGoing back home")
 
-    # def distance_check(self, state, action, height=0.08, radius=0.06):
-    #     # Define the gripper position and object position
-    #     gripper_position = np.array([action[0], action[1], action[2]])
-    #     object_position = np.array([state[0], state[1], state[2]])
-
-    #     # Get the rotation matrix from the quaternion
-    #     rotation_matrix = Rotation.from_quat([action[3], action[4], action[5], action[6]]).as_matrix()
-
-    #     # Get the slope of the 3D line for the cylinder by getting the third column vector (negative z-axis)
-    #     slope = -rotation_matrix[:, 2]
-
-    #     # Calculate the projection of the object position onto the slope line
-    #     projection = np.dot(slope, object_position - gripper_position)
-
-    #     # Convert projection back into 3D space
-    #     projection_3d = gripper_position + projection * slope
-
-    #     # Calculate the distance between the object position and its projection
-    #     proj_distance = np.linalg.norm(object_position - projection_3d)
-
-    #     # If the projection distance is less than the radius and the projection is within the height, return True
-    #     if (proj_distance <= radius) and (0.0 <= projection <= height):
-    #         result = True
-    #         self.get_logger().info(f"Distance check passed: radial distance: {proj_distance}; length distance: {projection}")
-
-    #     # If the check is not passed, return False and notify the user
-    #     else:
-    #         result = False
-    #         self.get_logger().info(f"Distance check failed: radial distance: {proj_distance}; length distance: {projection}")
-
-    #     return result
-
-    def distance_check(self, state, action, height=0.08, radius=0.10):
+    def distance_check(self, state, action, height=0.07, radius=0.07):
         # Define the gripper position and object position
         gripper_position = np.array([action[0], action[1], action[2]])
         object_position = np.array([state[0], state[1], state[2]])
@@ -889,9 +777,8 @@ class RecycRL(Node):
             # Set _ to 0
             t_star = 0.0
 
-        # In all other cases calculate
+        # In all other cases calculate 't_star' for closest point calculation
         else:
-            #
             t_star = -(object_difference_correlation - grip_difference_correlation * slope_correlation) / denom
 
         # If the object is a bottle, set the half length to the following (cm)
@@ -902,7 +789,7 @@ class RecycRL(Node):
         elif state[7] == 1:
             half_length = 0.07
 
-        # Clamp to segment
+        # Clamp to the segment
         t_star = np.clip(t_star, -half_length, half_length)
 
         # Get the closest point of the object to the gripper

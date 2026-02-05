@@ -19,10 +19,17 @@ def main():
         default="~/RD3/Expert_Buffer",
         help="Path to load and save the replay buffer with demonstrations",
     )
+    parser.add_argument(
+        "-entries",
+        dest="entries",
+        default="1",
+        help="Number of entries to remove from the end of the buffer",
+    )
 
     # Parse and assign arguments
     args = parser.parse_args()
     buffer_path = args.buffer_path
+    entries = int(args.entries)
 
     # Expand the user to handle "~"
     buffer_path = os.path.expanduser(buffer_path)
@@ -33,8 +40,10 @@ def main():
     # Print the size of the buffer
     print(f"Buffer size before: {buffer.size}")
 
-    # Remove the last entry in the buffer
-    buffer.remove_last()
+    # Loop for number of 'entries' specified
+    for _ in range(0, entries):
+        # Remove the last entry in the buffer
+        buffer.remove_last()
 
     # Print that removal was successful
     print("Removed last entry")

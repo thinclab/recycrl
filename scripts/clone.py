@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 
 """
-This node provides the ability to easily reset the workspace state and a provide a hand-guided robot pose
-for the corresponding state. The transition and reward is recorded and all data is saved to the replay buffer
+This node provides the ability to easily collect expert demos for the same state quicker than 'imitate.py'. Instead,
+of grabbing, getting the reward, and obtaining the next state, this script assumes the following: the state remains the same,
+there is one item in the workspace, the grasp will be successful and therefore the reward will be 1 and the next state will be an
+empty workspace. This allows multiple demos forsame state to be collected quickly for the "curriculum learning" part of training
 """
 
 import os
@@ -16,7 +18,7 @@ from rclpy.logging import get_logger
 
 def main():
     # Define arguments
-    description = "Node to simplify the data collection process for the expert replay buffer"
+    description = "Node to simplify the expert data collection process for the same state"
     parser = ArgumentParser(description=description)
     parser.add_argument(
         "-buffer_path",
@@ -46,7 +48,7 @@ def main():
         buffer = np.load(buffer_path + ".npy", allow_pickle=True).item()
 
     # Logging for buffer size
-    logger = get_logger("imitate")
+    logger = get_logger("clone")
     logger.info("Buffer ready with size of " + str(buffer.size))
 
     # Initialize rclpy
@@ -54,76 +56,53 @@ def main():
 
     # Try the following
     try:
-        # Initialize the Imitate Node
-        imitate = RecycRL(state_dim, action_dim)
+        # Initialize the Clone Node
+        clone = RecycRL(state_dim, action_dim)
 
         # Move the robot to the hidden state so that the workspace can be seen clearly
-        imitate.go_to(imitate.bin)
+        clone.go_to(clone.bin)
 
         # Open the gripper to so that it is ready to grab an item
-        imitate.open_gripper()
+        clone.open_gripper()
 
-        # Get the initial poses of the items in the workspace
-        state = imitate.get_workspace_state()
+        # Get the state of the workspace (this will remain constant)
+        state = clone.get_workspace_state()
+
+        # Move the robot to home
+        clone.go_to(clone.home)
 
         # Set 'run' to True initially to start the loop
         run = True
 
         # Start the loop
         while run:
-            # If the workspace is empty
-            if state[-1] == 0:
-                # Wait for the user to arrange items in the workspace
-                imitate.set_workspace_state()
-
-                # Get the poses of the items after the user has rearranged the items
-                state = imitate.get_workspace_state()
-
-            # Move the robot to home
-            imitate.go_to(imitate.home)
-
             # Deactivate the KUKA robot's external control to allow operator to hand guide robot
-            imitate.deactivate_external_control()
+            clone.deactivate_external_control()
 
             # Wait for the operator to move the robot to the desired pose
-            imitate.set_robot_state()
+            clone.set_robot_state()
 
             # Once the operator has provided a pose, reactivate the robot's external control
-            imitate.activate_external_control()
+            clone.activate_external_control()
 
             # Get the current state of the robot for the action now that external control is active
-            action = imitate.get_robot_state()
+            action = clone.get_robot_state()
 
-            # After the robot state has been recorded, close the gripper, lift, and go to the bin
-            imitate.grab_and_go_to_bin()
-
-            # Get the poses of the items after executing the action
-            next_state = imitate.get_workspace_state()
-
-            # Get the reward of the action
-            reward, done = imitate.get_reward(state, next_state, True)
-
-            # After getting the reward, open the gripper
-            imitate.open_gripper()
-
-            # Save the state, action, transition, and reward to the replay buffer
-            imitate.add_to_buffer(buffer, state, action, next_state, reward, done, True)
-
-            # Assign the next state to the current state for the next iteration, more efficient
-            state = next_state
+            # Save the state, action to the buffer; fill in 'next state', 'reward', and 'done' values for successful action
+            clone.add_to_buffer(buffer, state, action, [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0, 0], 1, True, True)
 
             # Save the buffer
-            imitate.save_buffer(buffer, buffer_path)
+            clone.save_buffer(buffer, buffer_path)
 
             # Check if the loop should continue
-            run = imitate.loop_check()
+            run = clone.loop_check()
 
         # Save the buffer after exiting the loop
-        imitate.save_buffer(buffer, buffer_path)
+        clone.save_buffer(buffer, buffer_path)
 
     # If there is an exception with the loop, notify the user
     except Exception as e:
-        print("\nImitate script failed: %r" % (e,))
+        print("\nClone script failed: %r" % (e,))
 
     # If there is a Keyboard Interrupt, gracefully shut down the Node
     except KeyboardInterrupt:

@@ -4,8 +4,6 @@
 This node samples from the expert buffer and generates a number of random trajectories to fill the online buffer efficiently
 """
 
-# generate.py: Create a new script to generate random trajectories for the online buffer efficiently
-
 import os
 import rclpy
 import numpy as np
@@ -131,7 +129,7 @@ def main():
                 converted_action = generate.convert_action(action)
 
                 # Check that the action has a possibility of succeeding
-                valid, _, _ = generate.distance_check(state, converted_action)
+                valid = generate.distance_check(state, converted_action)
 
                 # If the action is not valid
                 if not valid:
@@ -150,7 +148,7 @@ def main():
                     generate.go_to(generate.home)
 
                     # Go to the robot pose defined by the action
-                    valid, approached, executed, radius, length = generate.execute_action(state, action)
+                    valid, _ = generate.execute_action(state, action, True)
 
                     # After the robot has moved to the position, close the gripper, lift, and go to the bin
                     generate.grab_and_go_to_bin()
@@ -159,7 +157,7 @@ def main():
                     next_state = generate.get_workspace_state()
 
                 # Get the reward of the action
-                reward, done = generate.get_reward(state, action, next_state)
+                reward, done = generate.get_reward(state, next_state, valid)
 
                 # After getting the reward, open the gripper
                 generate.open_gripper()
