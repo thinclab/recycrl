@@ -38,6 +38,7 @@ install(
     scripts/reset.py
     scripts/generate.py
     scripts/clone.py
+    scripts/collect.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
