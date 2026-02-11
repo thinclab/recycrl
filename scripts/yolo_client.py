@@ -10,7 +10,6 @@ from rclpy.node import Node
 from functools import partial
 from recycrl.srv import Recyclables
 from argparse import ArgumentParser
-from tf_transformations import euler_from_quaternion
 
 
 class YOLOClient(Node):
@@ -52,23 +51,17 @@ class YOLOClient(Node):
             response = future.result()
 
             # If one or more objects was detected, print the results
-            if len(response.poses) > 0:
-                for i, pose in enumerate(response.poses):
+            if len(response.positions) > 0:
+                for i, position in enumerate(response.positions):
                     print(f"Object #{i + 1} - {type[response.types[i]]}\n-------------------")
                     print(
-                        f"Position:     X: {round(pose.position.x, 3)}  "
-                        f"Y: {round(pose.position.y, 3)}  "
-                        f"Z: {round(pose.position.z, 3)}"
+                        f"Position:     X: {round(position.x, 3)}  " f"Y: {round(position.y, 3)}  " f"Z: {round(position.z, 3)}"
                     )
                     print(
-                        f"Orientation:  X: {round(pose.orientation.x, 3)}  "
-                        f"Y: {round(pose.orientation.y, 3)}  "
-                        f"Z: {round(pose.orientation.z, 3)}  W: {round(pose.orientation.w, 3)}"
+                        f"Orientation:  Roll: 0.0  "
+                        f"Pitch: {round(degrees(response.pitches[i]), 3)}  "
+                        f"Yaw: {round(degrees(response.yaws[i]), 3)}"
                     )
-                    roll, pitch, yaw = euler_from_quaternion(
-                        [pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w]
-                    )
-                    print(f"Orientation:  Roll: 0.0  Pitch: {round(degrees(pitch), 3)}  Yaw: {round(degrees(yaw), 3)}")
                     print("")
 
             # If no objects were detected, notify the user

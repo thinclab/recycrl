@@ -437,8 +437,10 @@ class YOLOService(Node):
                 # The centroid is top of object, so set z position to be halfway between conveyor and top of object
                 pose.position.z = 0.75 + ((max_height - 0.75) / 2)
 
-            # Add the poses to the list
-            response.poses.append(pose)
+            # Add the 3D position and object angles to the corresponding response lists
+            response.positions.append(pose.position)
+            response.pitches.append(pitch_angles[i])
+            response.yaws.append(yaw_angles[i])
 
         # Assign the mask types to the service response
         response.types = [int(i) for i in prediction.boxes.cls.detach().cpu().tolist()]
