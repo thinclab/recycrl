@@ -8,10 +8,10 @@ import os
 import rclpy
 import numpy as np
 from recycRL import RecycRL
-from TD3.utils import ReplayBuffer
 from argparse import ArgumentParser
 from rclpy.logging import get_logger
-from TD3.Reward_Model import RewardModelTraining
+from reward_model import RewardModel
+from replay_buffer import ReplayBuffer
 
 
 def main():
@@ -88,8 +88,8 @@ def main():
     # Initialize rclpy
     rclpy.init()
 
-    # Initialize the RD3 RL Class
-    reward_model = RewardModelTraining(state_dim, action_dim, network_amount)
+    # Initialize the RewardModel Class
+    reward_model = RewardModel(state_dim, action_dim, network_amount)
 
     # If the reward model has been saved previously
     if os.path.exists(f"{model_path}_reward_model"):

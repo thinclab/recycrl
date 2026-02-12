@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 
 """
-This node provides a loop to collect random data for the online replay buffer. Use this to fill the online
-replay buffer before a reward model and policy has been trained
+This node loads the trained policy, executes the policy, and adds to the online buffer
 """
 
 import os
@@ -12,13 +11,20 @@ from utils import Utility
 from ast import literal_eval
 from argparse import ArgumentParser
 from rclpy.logging import get_logger
+from recycRL import RecycRL
 from replay_buffer import ReplayBuffer
 
 
 def main():
     # Define arguments
-    description = "Node to collect random data for the online replay buffer"
+    description = ""
     parser = ArgumentParser(description=description)
+    parser.add_argument(
+        "-rl_path",
+        dest="rl_path",
+        default="~/RecycRL/recycrl",
+        help="Path to save and load the RL model or actor",
+    )
     parser.add_argument(
         "-online_buffer_path",
         dest="online_buffer_path",
@@ -30,28 +36,44 @@ def main():
     parser.add_argument(
         "-min_action",
         dest="min_action",
-        default="[-0.1, -0.1, -0.01, -0.7853981634, -0.7853981634, -0.7853981634]",
+        default="[-0.10, -0.10, -0.01, -0.7853981634, -0.7853981634, -0.7853981634]",
         help="Minimum action values vector for x, y, and z position outputs",
     )
     parser.add_argument(
         "-max_action",
         dest="max_action",
-        default="[0.1, 0.1, 0.1, 0.7853981634, 0.7853981634, 0.7853981634]",
+        default="[0.10, 0.10, 0.10, 0.7853981634, 0.7853981634, 0.7853981634]",
         help="Maximum action values vector for x, y, and z position outputs",
+    )
+    parser.add_argument(
+        "-expl_noise",
+        dest="expl_noise",
+        default="[0.02, 0.02, 0.02, 0.10, 0.10, 0.10]",
+        help="Exploration noise standard deviation",
+    )
+    parser.add_argument(
+        "-noise_clip",
+        dest="noise_clip",
+        default="[0.04, 0.04, 0.04, 0.20, 0.20, 0.20]",
+        help="Maximum noise value",
     )
 
     # Parse and assign arguments
     args = parser.parse_args()
+    rl_path = args.rl_path
     online_buffer_path = args.online_buffer_path
     state_dim = int(args.state_dim)
     action_dim = int(args.action_dim)
     min_action = literal_eval(args.min_action)
     max_action = literal_eval(args.max_action)
+    expl_noise = literal_eval(args.expl_noise)
+    noise_clip = literal_eval(args.noise_clip)
 
     # Expand the user to handle "~"
+    rl_path = os.path.expanduser(rl_path)
     online_buffer_path = os.path.expanduser(online_buffer_path)
 
-    # Get the logger
+    # Define loggers
     logger = get_logger("collect")
 
     # If the online replay buffer does not exist, initialize a new ReplayBuffer() Class
@@ -69,10 +91,21 @@ def main():
     # Initialize rclpy
     rclpy.init()
 
+    # Initialize the RecycRL Class
+    rl = RecycRL(state_dim, action_dim, min_action, max_action, expl_noise, noise_clip)
+
+    # If the RL model has been saved previously
+    if os.path.exists(f"{rl_path}_actor"):
+        # Load the RL model
+        rl.load(rl_path)
+
+    elif not os.path.exists(f"{rl_path}_actor"):
+        os.makedirs(os.path.dirname(rl_path), exist_ok=True)
+
     # Try the following
     try:
         # Initialize the Utility Node
-        collect = Utility(active=True)
+        collect = Utility()
 
         # Move the robot to the bin position so that the workspace can be seen clearly
         collect.go_to(collect.bin)
@@ -80,7 +113,7 @@ def main():
         # Open the gripper to so that it is ready to grab an item
         collect.open_gripper()
 
-        # Get the current state of the workspace
+        # Get the initial poses of the items in the workspace
         network_state, actual_state = collect.get_workspace_state()
 
         # Set 'run' to True initially to start the loop
@@ -99,24 +132,15 @@ def main():
             # Move the robot to home
             collect.go_to(collect.home)
 
-            # Select a random action to take
-            action = collect.select_random_action(min_action, max_action)
+            # Pass the state through the actor network to get the action, add noise for exploration
+            action = rl.select_action(network_state, add_noise=True)
 
-            # Execute the action
+            # Go to the robot pose defined by the action
             executed, action = collect.execute_action(actual_state, action, penalize=False, train=True)
 
-            # If the action was not executed
-            if not executed:
-                # There is no change in state due to failed action, so next state is same as current state
-                next_network_state, next_actual_state = network_state, actual_state
-
-                # Reward of failed action is 0
-                reward = 0
-                collect.get_logger().warn("Reward: 0")
-
-            # If the action was executed
-            elif executed:
-                # After the robot has moved to the position, close the gripper, lift, and go to the bin
+            # If the robot successfully moved to the desired pose
+            if executed:
+                # After the robot has moved output position, close the gripper, lift, and go to the bin
                 collect.grab_and_go_to_bin()
 
                 # Get the poses of the items after the action has been executed
@@ -125,7 +149,16 @@ def main():
                 # Get the reward of the action
                 reward = collect.get_reward(actual_state, next_actual_state)
 
-            # After getting the reward, open the gripper
+            # If the robot could not reach the desired pose
+            elif not executed:
+                # There is no change in state due to failed action, so next state is same as current state
+                next_network_state, next_actual_state = network_state, actual_state
+
+                # Reward of failed action is 0
+                reward = 0
+                collect.get_logger().warn("Reward: 0")
+
+            # Open the gripper to so that it is ready to grab an item
             collect.open_gripper()
 
             # Add the state, action, transition, and reward to the replay buffer

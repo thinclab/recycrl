@@ -36,6 +36,7 @@ install(
     scripts/reset_robot.py
     scripts/teach_expert_demos.py
     scripts/collect_random_demos.py
+    scripts/collect_policy_demos.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

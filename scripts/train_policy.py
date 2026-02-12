@@ -7,12 +7,12 @@ This script gives the training sequence for the policy after a reward model has 
 import os
 import rclpy
 import numpy as np
-from TD3.recycRL import RL
 from utils import Utility
+from recycRL import RecycRL
 from ast import literal_eval
-from TD3.utils import ReplayBuffer
 from argparse import ArgumentParser
 from rclpy.logging import get_logger
+from replay_buffer import ReplayBuffer
 
 
 def main():
@@ -111,8 +111,8 @@ def main():
     # Initialize rclpy
     rclpy.init()
 
-    # Initialize the RD3 RL Class
-    rl = RL(reward_model_path, state_dim, action_dim, min_action, max_action, expl_noise, noise_clip)
+    # Initialize the RecycRL Class
+    rl = RecycRL(reward_model_path, state_dim, action_dim, min_action, max_action, expl_noise, noise_clip)
 
     # If the RL model has been saved previously
     if os.path.exists(f"{rl_path}_actor"):
