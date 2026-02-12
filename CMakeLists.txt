@@ -27,18 +27,15 @@ rosidl_generate_interfaces(${PROJECT_NAME}
 install(
   PROGRAMS
     scripts/recycle.py
-    scripts/imitate.py
     scripts/cam_align.py
-    scripts/detect_service.py
     scripts/pnp.py
     scripts/image_capture.py
     scripts/yolo_service.py
     scripts/yolo_client.py
     scripts/train.py
-    scripts/reset.py
-    scripts/generate.py
-    scripts/clone.py
-    scripts/collect.py
+    scripts/reset_robot.py
+    scripts/teach_expert_demos.py
+    scripts/collect_random_demos.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

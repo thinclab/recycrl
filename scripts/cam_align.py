@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-This script publishes Roll and Pitch values of the Oak-D S2 Camera for alignment
+This node publishes Roll and Pitch values of the Oak-D S2 Camera for alignment
 """
 
 import rclpy

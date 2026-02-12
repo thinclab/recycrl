@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
 
 """
-This node provides the ability to easily collect expert demos for the same state quicker than 'imitate.py'. Instead,
-of grabbing, getting the reward, and obtaining the next state, this script assumes the following: the state remains the same,
-there is one item in the workspace, the grasp will be successful and therefore the reward will be 1 and the next state will be an
-empty workspace. This allows multiple demos for same state to be collected quickly
+This node provides the ability to easily collect expert demos. This script will get the state and assume that the state remains
+the same until you provide a number of expert demos equal to that of 'clone_amount'. The reward of these demos are assumed to be 1
+and the state will be captured again after you provide 'clone_amount' demos. Use this to collect expert demos before training
 """
 
 import os
 import rclpy
 import numpy as np
-from recycRL import RecycRL
+from utils import Utility
 from TD3.utils import ReplayBuffer
 from argparse import ArgumentParser
 from rclpy.logging import get_logger
@@ -23,7 +22,7 @@ def main():
     parser.add_argument(
         "-buffer_path",
         dest="buffer_path",
-        default="~/RD3/Expert_Buffer",
+        default="~/RecycRL/Expert_Buffer",
         help="Path to load and save the expert replay buffer with demonstrations",
     )
     parser.add_argument("-state_dim", dest="state_dim", default="4", help="Dimension size of state")
@@ -60,8 +59,8 @@ def main():
 
     # Try the following
     try:
-        # Initialize the Clone Node
-        clone = RecycRL()
+        # Initialize the Utility Node
+        clone = Utility(active=True)
 
         # Set 'run' to True initially to start the loop
         run = True

@@ -4,6 +4,8 @@
 This script simplifies the process of loading the tracking variables for the RL model
 """
 
+# assess_policy.py: Renamed from assess.py and changed default path
+
 import os
 import numpy as np
 from argparse import ArgumentParser
@@ -16,7 +18,7 @@ def main():
     parser.add_argument(
         "-rl_path",
         dest="rl_path",
-        default="~/RD3/RD3",
+        default="~/RecycRL/recycrl",
         help="Path to load the RL model",
     )
 

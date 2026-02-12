@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 
 """
-This node provides a loop to collect random data for the online replay buffer
+This node provides a loop to collect random data for the online replay buffer. Use this to fill the online
+replay buffer before a reward model and policy has been trained
 """
 
 import os
 import rclpy
 import numpy as np
-from recycRL import RecycRL
+from utils import Utility
 from ast import literal_eval
 from TD3.utils import ReplayBuffer
 from argparse import ArgumentParser
@@ -21,7 +22,7 @@ def main():
     parser.add_argument(
         "-online_buffer_path",
         dest="online_buffer_path",
-        default="~/RD3/Online_Buffer",
+        default="~/RecycRL/Online_Buffer",
         help="Path to load and save the replay buffer with online policy demonstrations",
     )
     parser.add_argument("-state_dim", dest="state_dim", default="4", help="Dimension size of state")
@@ -70,8 +71,8 @@ def main():
 
     # Try the following
     try:
-        # Initialize the RecycRL Node
-        collect = RecycRL()
+        # Initialize the Utility Node
+        collect = Utility(active=True)
 
         # Move the robot to the bin position so that the workspace can be seen clearly
         collect.go_to(collect.bin)
@@ -111,7 +112,7 @@ def main():
 
                 # Reward of failed action is 0
                 reward = 0
-                collect.get_logger().warn(f"Reward: 0")
+                collect.get_logger().warn("Reward: 0")
 
             # If the action was executed
             elif executed:

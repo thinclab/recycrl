@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-This script loads the replay buffer at the specified path and removes an entry
+This script loads the replay buffer at the specified path and removes the specified number of entries from the end
 """
 
 import os
@@ -16,7 +16,7 @@ def main():
     parser.add_argument(
         "-buffer_path",
         dest="buffer_path",
-        default="~/RD3/Expert_Buffer",
+        default="~/RecycRL/Expert_Buffer",
         help="Path to load and save the replay buffer with demonstrations",
     )
     parser.add_argument(

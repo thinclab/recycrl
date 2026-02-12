@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 
 """
-This script provides the main Class and all of the functions for capturing state transitions for
-the replay buffer and training the robot with RD3 RL to sort recyclables (train.py, imitate.py, and generate.py)
+This script provides the main Class and all of the common functions for this package
 """
 
 import rclpy
@@ -28,8 +27,8 @@ from moveit.planning import MoveItPy, PlanRequestParameters
 from moveit.core.kinematic_constraints import construct_joint_constraint, construct_link_constraint
 
 
-class RecycRL(Node):
-    def __init__(self):
+class Utility(Node):
+    def __init__(self, active=True):
         # Register the ROS2 Node
         super().__init__("recycrl")
 
@@ -48,52 +47,54 @@ class RecycRL(Node):
         # Create a publisher to publish the Pose of the object in RViz
         self.publisher = self.create_publisher(PoseStamped, "/recycrl_pose", 10)
 
-        # Define requests and clients
-        self.get_recyclables_request = Recyclables.Request()
-        self.get_state_request = GetState.Request()
-        self.change_state_request = ChangeState.Request()
-        self.get_recyclables_client = self.create_client(Recyclables, "/get_recyclables")
-        self.get_state_client = self.create_client(GetState, "/robot_manager/get_state")
-        self.change_state_client = self.create_client(ChangeState, "/robot_manager/change_state")
+        # If we are in 'active' mode, initialize the services and MoveIt configuration
+        if active:
+            # Define requests and clients
+            self.get_recyclables_request = Recyclables.Request()
+            self.get_state_request = GetState.Request()
+            self.change_state_request = ChangeState.Request()
+            self.get_recyclables_client = self.create_client(Recyclables, "/get_recyclables")
+            self.get_state_client = self.create_client(GetState, "/robot_manager/get_state")
+            self.change_state_client = self.create_client(ChangeState, "/robot_manager/change_state")
 
-        # Wait for the services to become available
-        while not self.get_recyclables_client.wait_for_service(4.0):
-            self.get_logger().info("Waiting for YOLO service ...")
-        while not self.get_state_client.wait_for_service(4.0):
-            self.get_logger().info("Waiting for robot get state service ...")
-        while not self.change_state_client.wait_for_service(4.0):
-            self.get_logger().info("Waiting for robot change state service ...")
+            # Wait for the services to become available
+            while not self.get_recyclables_client.wait_for_service(4.0):
+                self.get_logger().info("Waiting for YOLO service ...")
+            while not self.get_state_client.wait_for_service(4.0):
+                self.get_logger().info("Waiting for robot get state service ...")
+            while not self.change_state_client.wait_for_service(4.0):
+                self.get_logger().info("Waiting for robot change state service ...")
 
-        # Check if the robot is active, and activate it if it is inactive
-        self.activate_external_control()
+            # Check if the robot is active, and activate it if it is inactive
+            self.activate_external_control()
 
-        # Define the MoveIt Configuration
-        moveit_config = (
-            MoveItConfigsBuilder("kuka_lbr_iisy")
-            .robot_description(file_path="/urdf/lbr_iisy3_r760_combined.urdf")
-            .robot_description_semantic(file_path=(get_package_share_directory("kuka_kontrol")) + "/urdf/lbr_iisy3_r760.srdf")
-            .joint_limits(
-                file_path=get_package_share_directory("kuka_lbr_iisy_support") + "/config/lbr_iisy3_r760_joint_limits.yaml"
+            # Define the MoveIt Configuration
+            moveit_config = (
+                MoveItConfigsBuilder("kuka_lbr_iisy")
+                .robot_description(file_path="/urdf/lbr_iisy3_r760_combined.urdf")
+                .robot_description_semantic(file_path=(get_package_share_directory("kuka_kontrol")) + "/urdf/lbr_iisy3_r760.srdf")
+                .joint_limits(
+                    file_path=get_package_share_directory("kuka_lbr_iisy_support") + "/config/lbr_iisy3_r760_joint_limits.yaml"
+                )
+                .moveit_cpp(file_path=get_package_share_directory("kuka_kontrol") + "/config/planning.yaml")
+                .to_moveit_configs()
             )
-            .moveit_cpp(file_path=get_package_share_directory("kuka_kontrol") + "/config/planning.yaml")
-            .to_moveit_configs()
-        )
 
-        # Instantiate MoveItPy and the various components
-        self.kuka_move = MoveItPy(node_name="moveit_py", config_dict=moveit_config.to_dict())
-        self.kuka = self.kuka_move.get_planning_component("manipulator")
-        self.robot_model = self.kuka_move.get_robot_model()
-        self.robot_state = RobotState(self.robot_model)
-        self.joint_group = self.robot_model.get_joint_model_group("manipulator")
-        self.trajectory_manager = self.kuka_move.get_trajectory_execution_manager()
-        self.plan_parameters = PlanRequestParameters(self.kuka_move, "pilz_solo")
-        self.planning_scene = self.kuka_move.get_planning_scene_monitor()
-        self.set_collision_scene()
+            # Instantiate MoveItPy and the various components
+            self.kuka_move = MoveItPy(node_name="moveit_py", config_dict=moveit_config.to_dict())
+            self.kuka = self.kuka_move.get_planning_component("manipulator")
+            self.robot_model = self.kuka_move.get_robot_model()
+            self.robot_state = RobotState(self.robot_model)
+            self.joint_group = self.robot_model.get_joint_model_group("manipulator")
+            self.trajectory_manager = self.kuka_move.get_trajectory_execution_manager()
+            self.plan_parameters = PlanRequestParameters(self.kuka_move, "pilz_solo")
+            self.planning_scene = self.kuka_move.get_planning_scene_monitor()
+            self.set_collision_scene()
 
-        # Define pre-set positions for KUKA
-        self.home = self.construct_joint_position([0.0, -1.74533, 1.5708, 0.0, 1.74533, 0.0])
-        self.bin = self.construct_joint_position([-1.5708, -1.13446, 1.48353, 0.0, 1.22173, -1.5708])
-        self.hidden = self.construct_joint_position([-1.5708, -1.5708, 1.5708, 0.0, 1.5708, 0.0])
+            # Define pre-set positions for KUKA
+            self.home = self.construct_joint_position([0.0, -1.74533, 1.5708, 0.0, 1.74533, 0.0])
+            self.bin = self.construct_joint_position([-1.5708, -1.13446, 1.48353, 0.0, 1.22173, -1.5708])
+            self.hidden = self.construct_joint_position([-1.5708, -1.5708, 1.5708, 0.0, 1.5708, 0.0])
 
     def trajectory_callback(self, msg):
         # Assign the message to the global variable
@@ -418,7 +419,9 @@ class RecycRL(Node):
 
         return action
 
-    def execute_action(self, state, action, penalize=False, train=True, initial_tolerance=0.01, tolerance_increase=0.01, max_tolerance=0.1):
+    def execute_action(
+        self, state, action, penalize=False, train=True, initial_tolerance=0.01, tolerance_increase=0.01, max_tolerance=0.1
+    ):
         # Set approached and executed to be False initially
         approached = False
         executed = False
@@ -579,7 +582,7 @@ class RecycRL(Node):
                     # Increase the tolerance and try the approach again
                     tolerance += tolerance_increase
 
-        return approached, executed
+        return executed, fixed_action
 
     def approach(self, action, approach_dist=0.12, initial_tolerance=0.1, tolerance_increase=0.01, max_tolerance=0.3):
         # Position vector
@@ -951,10 +954,17 @@ class RecycRL(Node):
 
         return joint_position
 
-    def convert_action(self, state, action, penalize=False, min_bound=[0.2, -0.35, 0.805, -0.7854, -0.7854, -1.9635], max_bound=[0.55, 0.35, 0.93, 0.7854, 0.7854, 1.9635]):
+    def convert_action(
+        self,
+        state,
+        action,
+        penalize=False,
+        min_bound=[0.2, -0.35, 0.805, -0.7854, -0.7854, -1.9635],
+        max_bound=[0.55, 0.35, 0.93, 0.7854, 0.7854, 1.9635],
+    ):
         # Define modified variable to be False initially
         modified = False
-        
+
         # Define fixed action to be the same as the passed action initially
         fixed_action = action.copy()
 
@@ -971,7 +981,7 @@ class RecycRL(Node):
         unclamped_pitch = action[4] + state[3]
         unclamped_yaw = action[5] + flipped_yaw
 
-        # If we are penalizing out-of-bounds actions, 
+        # If we are penalizing out-of-bounds actions,
         if penalize:
             pass
 

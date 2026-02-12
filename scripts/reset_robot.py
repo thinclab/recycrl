@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-This Node resets the robot by reactivating it, opening the gripper, and sending it home
+This node resets the robot by reactivating it, opening the gripper, and sending it home
 """
 
 import rclpy
