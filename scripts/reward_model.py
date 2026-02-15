@@ -104,11 +104,11 @@ class RewardModel(object):
         self.reward_model_optimizer.step()  # Update the parameters
 
     def save(self, filename):
-        torch.save(self.reward_model.state_dict(), filename + "_reward_model")
-        torch.save(self.reward_model_optimizer.state_dict(), filename + "_reward_model_optimizer")
-        np.save(filename + "reward_model_total_it.npy", self.total_it)
+        torch.save(self.reward_model.state_dict(), filename + "/Reward_Model")
+        torch.save(self.reward_model_optimizer.state_dict(), filename + "/Reward_Model_Optimizer")
+        np.save(filename + "/Reward_Model_Iterations.npy", self.total_it)
 
     def load(self, filename):
-        self.reward_model.load_state_dict(torch.load(filename + "_reward_model"))
-        self.reward_model_optimizer.load_state_dict(torch.load(filename + "_reward_model_optimizer"))
-        self.total_it = int(np.load(filename + "_reward_model_total_it.npy"))
+        self.reward_model.load_state_dict(torch.load(filename + "/Reward_Model"))
+        self.reward_model_optimizer.load_state_dict(torch.load(filename + "/Reward_Model_Optimizer"))
+        self.total_it = int(np.load(filename + "/Reward_Model_Iterations.npy"))

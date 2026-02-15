@@ -23,13 +23,13 @@ def main():
     parser.add_argument(
         "-rl_path",
         dest="rl_path",
-        default="~/RecycRL/recycrl",
+        default="~/RecycRL",
         help="Path to save the RL model or actor",
     )
     parser.add_argument(
         "-reward_model_path",
         dest="reward_model_path",
-        default="~/RecycRL/recycrl",
+        default="~/RecycRL",
         help="Path to load the reward model",
     )
     parser.add_argument(
@@ -72,8 +72,6 @@ def main():
     action_dim = int(args.action_dim)
     min_action = literal_eval(args.min_action)
     max_action = literal_eval(args.max_action)
-    expl_noise = literal_eval(args.expl_noise)
-    noise_clip = literal_eval(args.noise_clip)
     expert_batch_size = int(args.expert_batch_size)
     online_batch_size = int(args.online_batch_size)
 
@@ -112,15 +110,27 @@ def main():
     rclpy.init()
 
     # Initialize the RecycRL Class
-    rl = RecycRL(reward_model_path, state_dim, action_dim, min_action, max_action, expl_noise, noise_clip)
+    rl = RecycRL(state_dim, action_dim, min_action, max_action, model_path=reward_model_path)
 
-    # If the RL model has been saved previously
-    if os.path.exists(f"{rl_path}_actor"):
-        # Load the RL model
+    # If the RL model has been saved previously, load it
+    if os.path.exists(f"{rl_path}/Policy"):
         rl.load(rl_path)
 
-    elif not os.path.exists(f"{rl_path}_actor"):
+    # If the RL model does not exist, create the save directory
+    elif not os.path.exists(f"{rl_path}/Policy"):
         os.makedirs(os.path.dirname(rl_path), exist_ok=True)
+
+    # If the reward model in the policy was not loaded correctly, notify the user and return
+    if rl.reward_model.total_it == 0:
+        logger.error("Reward model does not exist, provide correct path")
+        return
+
+    # If the reward model in the policy was loaded correctly
+    if rl.reward_model.total_it != 0:
+        logger.info("Reward model ready")
+
+    # Logging for policy
+    logger.info("Policy ready with iteration step of " + str(rl.total_it))
 
     # Try the following
     try:

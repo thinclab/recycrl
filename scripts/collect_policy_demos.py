@@ -22,7 +22,7 @@ def main():
     parser.add_argument(
         "-rl_path",
         dest="rl_path",
-        default="~/RecycRL/recycrl",
+        default="~/RecycRL",
         help="Path to save and load the RL model or actor",
     )
     parser.add_argument(
@@ -94,13 +94,15 @@ def main():
     # Initialize the RecycRL Class
     rl = RecycRL(state_dim, action_dim, min_action, max_action, expl_noise, noise_clip)
 
-    # If the RL model has been saved previously
-    if os.path.exists(f"{rl_path}_actor"):
-        # Load the RL model
+    # If the RL model has been saved previously, load the model
+    if os.path.exists(f"{rl_path}/Policy"):
         rl.load(rl_path)
+        logger.info("Policy ready")
 
-    elif not os.path.exists(f"{rl_path}_actor"):
-        os.makedirs(os.path.dirname(rl_path), exist_ok=True)
+    # If the RL model does not exist, notify the user and return
+    elif not os.path.exists(f"{rl_path}/Policy"):
+        logger.error("Policy does not exist, provide correct path")
+        return
 
     # Try the following
     try:

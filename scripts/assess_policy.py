@@ -4,8 +4,6 @@
 This script simplifies the process of loading the tracking variables for the RL model
 """
 
-# assess_policy.py: Renamed from assess.py and changed default path
-
 import os
 import numpy as np
 from argparse import ArgumentParser
@@ -18,7 +16,7 @@ def main():
     parser.add_argument(
         "-rl_path",
         dest="rl_path",
-        default="~/RecycRL/recycrl",
+        default="~/RecycRL",
         help="Path to load the RL model",
     )
 
@@ -30,8 +28,8 @@ def main():
     rl_path = os.path.expanduser(rl_path)
 
     # Load the tracking variables
-    total_it = int(np.load(rl_path + "_total_it.npy"))
-    prev_rewards = np.load(rl_path + "_prev_rewards.npy").tolist()
+    total_it = int(np.load(rl_path + "/Policy_Iterations.npy"))
+    prev_rewards = np.load(rl_path + "/Policy_Previous_Rewards.npy").tolist()
 
     # Print the tracking variables
     print(f"Total Timesteps: {total_it}")

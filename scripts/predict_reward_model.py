@@ -20,7 +20,7 @@ def main():
     parser.add_argument(
         "-model_path",
         dest="model_path",
-        default="~/RecycRL/recycrl",
+        default="~/RecycRL",
         help="Path to save the reward model",
     )
     parser.add_argument(
@@ -52,7 +52,7 @@ def main():
 
     # If the expert replay buffer does not exist, notify the user
     if not os.path.exists(expert_buffer_path + ".npy"):
-        logger.warn("Expert replay buffer does not exist, provide correct path")
+        logger.error("Expert replay buffer does not exist, provide correct path")
         return
 
     # If the expert replay buffer exists, load the Class
@@ -61,7 +61,7 @@ def main():
 
     # If the online replay buffer does not exist, notify the user
     if not os.path.exists(online_buffer_path + ".npy"):
-        logger.warn("Online replay buffer does not exist, provide correct path")
+        logger.error("Online replay buffer does not exist, provide correct path")
         return
 
     # If the online replay buffer exists, load the Class
@@ -79,13 +79,13 @@ def main():
     reward_model = RewardModel(state_dim=4, action_dim=6, network_amount=5)
 
     # If the reward model has been saved previously
-    if os.path.exists(f"{model_path}_reward_model"):
+    if os.path.exists(f"{model_path}/Reward_Model"):
         # Load the reward model
         reward_model.load(model_path)
 
-    # If the reward model does not exist, notify the user
-    if not os.path.exists(online_buffer_path + ".npy"):
-        logger.warn("Reward model does not exist, provide correct path")
+    # If the reward model does not exist, notify the user and return
+    if not os.path.exists(f"{model_path}/Reward_Model"):
+        logger.error("Reward model does not exist, provide correct path")
         return
 
     state, action, reward = expert_buffer.sample(1)

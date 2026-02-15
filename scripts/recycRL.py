@@ -24,7 +24,6 @@ class Actor(nn.Module):
         # Convert lists to tensors and register as buffers so torch.save() saves these values
         self.register_buffer("min_action", torch.tensor(min_action))
         self.register_buffer("max_action", torch.tensor(max_action))
-        print(self.min_action)
 
         # Define the structure of the actor network
         # state dimension input -> 512 features, 512 features -> 512 features, 512 features -> action dimension output
@@ -50,7 +49,7 @@ class RecycRL(object):
         max_action=[0.10, 0.10, 0.10, 0.7853981634, 0.7853981634, 0.7853981634],
         expl_noise=[0.02, 0.02, 0.02, 0.10, 0.10, 0.10],
         noise_clip=[0.04, 0.04, 0.04, 0.20, 0.20, 0.20],
-        model_path="~/RecycRL/recycrl",
+        model_path="~/RecycRL",
     ):
         # Define NN for actor and copy it for target network, then define optimizer
         self.actor = Actor(state_dim, action_dim, min_action, max_action).to(device)
@@ -72,14 +71,9 @@ class RecycRL(object):
         self.total_it = 0  # Tracking variable for number of iterations
         self.prev_rewards = []  # Tracking variable for previous rewards
 
-        # If the reward model is found
-        if os.path.exists(f"{model_path}_reward_model"):
-            # Load the reward model
+        # If the reward model has been saved previously, load the model
+        if os.path.exists(f"{model_path}/Reward_Model"):
             self.reward_model.load(model_path)
-
-        # If the reward model cannot be found
-        elif not os.path.exists(f"{model_path}_reward_model"):
-            return
 
     def select_action(self, state, add_noise=False):
         # Convert the state to a row vector tensor and then add it to the GPU
@@ -97,7 +91,8 @@ class RecycRL(object):
             action = action + noise
 
         # Clamp final action to valid bounds
-        action = torch.max(torch.min(action, self.max_action), self.min_action)
+        action = action.clamp(self.min_action, self.max_action)
+        # action = torch.max(torch.min(action, self.max_action), self.min_action)
 
         return action.cpu().detach().numpy().flatten()
 
@@ -126,19 +121,16 @@ class RecycRL(object):
         self.actor_optimizer.step()  # Update the parameters
 
     def save(self, filename):
-        torch.save(self.actor.state_dict(), filename + "_actor")
-        torch.save(self.actor_optimizer.state_dict(), filename + "_actor_optimizer")
-        np.save(filename + "_total_it.npy", self.total_it)
-        np.save(filename + "_prev_rewards.npy", self.prev_rewards)
+        torch.save(self.actor.state_dict(), filename + "/Policy")
+        torch.save(self.actor_optimizer.state_dict(), filename + "/Policy_Optimizer")
+        np.save(filename + "/Policy_Iterations.npy", self.total_it)
+        np.save(filename + "/Policy_Previous_Rewards.npy", self.prev_rewards)
 
     def load(self, filename):
-        self.actor.load_state_dict(torch.load(filename + "_actor"))
-        self.actor_optimizer.load_state_dict(torch.load(filename + "_actor_optimizer"))
-        self.total_it = int(np.load(filename + "_total_it.npy"))
-        self.prev_rewards = np.load(filename + "_prev_rewards.npy").tolist()
-
-        self.actor.min_action.copy_(torch.tensor(self.min_action, device=device))
-        self.actor.max_action.copy_(torch.tensor(self.max_action, device=device))
+        self.actor.load_state_dict(torch.load(filename + "/Policy"))
+        self.actor_optimizer.load_state_dict(torch.load(filename + "/Policy_Optimizer"))
+        self.total_it = int(np.load(filename + "/Policy_Iterations.npy"))
+        self.prev_rewards = np.load(filename + "/Policy_Previous_Rewards.npy").tolist()
 
     def evaluate_policy(self, reward, filename):
         # Add the most recent reward to the list of previous rewards

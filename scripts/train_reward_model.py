@@ -7,7 +7,7 @@ This script gives the training sequence for the reward model after sufficient ex
 import os
 import rclpy
 import numpy as np
-from recycRL import RecycRL
+from utils import Utility
 from argparse import ArgumentParser
 from rclpy.logging import get_logger
 from reward_model import RewardModel
@@ -23,7 +23,7 @@ def main():
     parser.add_argument(
         "-model_path",
         dest="model_path",
-        default="~/RecycRL/recycrl",
+        default="~/RecycRL",
         help="Path to save the reward model",
     )
     parser.add_argument(
@@ -92,17 +92,21 @@ def main():
     reward_model = RewardModel(state_dim, action_dim, network_amount)
 
     # If the reward model has been saved previously
-    if os.path.exists(f"{model_path}_reward_model"):
+    if os.path.exists(f"{model_path}/Reward_Model"):
         # Load the reward model
         reward_model.load(model_path)
 
-    elif not os.path.exists(f"{model_path}_reward_model"):
+    # If the reward model does not exist, create the save directory
+    elif not os.path.exists(f"{model_path}/Reward_Model"):
         os.makedirs(os.path.dirname(model_path), exist_ok=True)
+
+    # Logging for reward model
+    logger.info("Reward model ready with iteration step of " + str(reward_model.total_it))
 
     # Try the following
     try:
         # Initialize the RecycRL Node
-        train = RecycRL(active=False)
+        train = Utility(active=False)
 
         # Start the training loop for the specified number of training steps
         for _ in range(training_steps):
