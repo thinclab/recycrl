@@ -149,9 +149,11 @@ def main():
             if rl.total_it % 1000 == 0:
                 # Save the RL model incrementally
                 rl.save(rl_path)
+                print("Saved Policy\n")
 
         # Save the RL model after exiting the loop
         rl.save(rl_path)
+        print("Saved Policy\n")
 
     # If there is an exception with the loop
     except Exception as e:

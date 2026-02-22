@@ -80,7 +80,7 @@ def main():
         execute.open_gripper()
 
         # Get the initial poses of the items in the workspace
-        network_state, actual_state = execute.get_workspace_state()
+        network_state, actual_state = execute.get_workspace_state(check=False)
 
         # Set 'run' to True initially to start the loop
         run = True
@@ -93,7 +93,7 @@ def main():
                 execute.set_workspace_state()
 
                 # Get the poses of the items after the user has rearranged the items
-                network_state, actual_state = execute.get_workspace_state()
+                network_state, actual_state = execute.get_workspace_state(check=False)
 
             # Move the robot to home
             execute.go_to(execute.home)
@@ -108,7 +108,7 @@ def main():
             execute.grab_and_go_to_bin()
 
             # Get the poses of the items after the action has been executed
-            network_state, actual_state = execute.get_workspace_state()
+            network_state, actual_state = execute.get_workspace_state(check=False)
 
             # Open the gripper to so that it is ready to grab an item
             execute.open_gripper()

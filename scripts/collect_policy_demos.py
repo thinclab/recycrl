@@ -107,7 +107,10 @@ def main():
     # Try the following
     try:
         # Initialize the Utility Node
-        collect = Utility()
+        collect = Utility(active=True)
+
+        # Get the number of times the last state consecutively appeared in the buffer
+        collect.get_last_state_amount(online_buffer)
 
         # Move the robot to the bin position so that the workspace can be seen clearly
         collect.go_to(collect.bin)
@@ -116,7 +119,7 @@ def main():
         collect.open_gripper()
 
         # Get the initial poses of the items in the workspace
-        network_state, actual_state = collect.get_workspace_state()
+        network_state, actual_state = collect.get_workspace_state(check=True)
 
         # Set 'run' to True initially to start the loop
         run = True
@@ -129,7 +132,7 @@ def main():
                 collect.set_workspace_state()
 
                 # Get the poses of the items after the user has rearranged the items
-                network_state, actual_state = collect.get_workspace_state()
+                network_state, actual_state = collect.get_workspace_state(check=True)
 
             # Move the robot to home
             collect.go_to(collect.home)
@@ -146,7 +149,7 @@ def main():
                 collect.grab_and_go_to_bin()
 
                 # Get the poses of the items after the action has been executed
-                next_network_state, next_actual_state = collect.get_workspace_state()
+                next_network_state, next_actual_state = collect.get_workspace_state(check=True)
 
                 # Get the reward of the action
                 reward = collect.get_reward(actual_state, next_actual_state)
@@ -171,6 +174,9 @@ def main():
 
             # Save the online buffer
             collect.save_buffer(online_buffer, online_buffer_path)
+
+            # Get the number of times the last state consecutively appeared in the buffer
+            collect.get_last_state_amount(online_buffer)
 
             # Check if the loop should continue
             run = collect.loop_check()

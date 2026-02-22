@@ -37,6 +37,7 @@ install(
     scripts/teach_expert_demos.py
     scripts/collect_random_demos.py
     scripts/collect_policy_demos.py
+    scripts/execute_policy.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

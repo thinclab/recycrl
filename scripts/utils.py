@@ -94,6 +94,7 @@ class Utility(Node):
             # Define pre-set positions for KUKA
             self.home = self.construct_joint_position([0.0, -1.74533, 1.5708, 0.0, 1.74533, 0.0])
             self.bin = self.construct_joint_position([-1.5708, -1.13446, 1.48353, 0.0, 1.22173, -1.5708])
+            # self.bin = self.construct_joint_position([-1.65806, -1.13446, 1.48353, 0.0, 1.22173, -1.65806])
             self.hidden = self.construct_joint_position([-1.5708, -1.5708, 1.5708, 0.0, 1.5708, 0.0])
 
     def trajectory_callback(self, msg):
@@ -114,7 +115,7 @@ class Utility(Node):
             self.get_logger().warn("You typed '" + str(answer) + "', click 'Enter' to capture the current workspace and continue")
             answer = input()
 
-    def get_workspace_state(self):
+    def get_workspace_state(self, check=True):
         # Call the get poses service, spin the Node until a response is received, and define the response
         get_recyclables_future = self.get_recyclables_client.call_async(self.get_recyclables_request)
         rclpy.spin_until_future_complete(self, get_recyclables_future)
@@ -217,8 +218,8 @@ class Utility(Node):
 
             # Define a list for printing the state with the angles in degrees
             print_state = actual_state.copy()
-            print_state[3] = round(degrees(print_state[3]), 3)
-            print_state[4] = round(degrees(print_state[4]), 3)
+            print_state[3] = round(degrees(print_state[3]), 5)
+            print_state[4] = round(degrees(print_state[4]), 5)
 
         # Otherwise, return a list with all zeros
         else:
@@ -230,18 +231,37 @@ class Utility(Node):
         self.get_logger().warn(f"Network State: {network_state}")
         self.get_logger().warn(f"Actual State: {print_state}; Index: {index + 1}")
 
-        # Block the program until the user has notified that the  robot state has been set
-        self.get_logger().warn("Is the state accurate? (y/n)")
-        answer = input()
-
-        # If they do not click "Enter", notify the user
-        while answer != "y" and answer != "n":
-            self.get_logger().warn("You typed '" + str(answer) + "', type 'y' to use the current state and 'n' to retry")
+        # If the 'check' argument is True
+        if check:
+            # Block the program until the user has notified that the  robot state has been set
+            self.get_logger().warn("Is the state accurate? (y/n/f)")
             answer = input()
 
-        # If the user wants to recapture the state
-        if answer == "n":
-            network_state, actual_state = self.get_workspace_state()
+            # If they do not click "Enter", notify the user
+            while answer != "y" and answer != "n" and answer != "f":
+                self.get_logger().warn(
+                    "You typed '" + str(answer) + "', type 'y' to use state, 'n' to retry, and 'f' to flip yaw"
+                )
+                answer = input()
+
+            # If the user wants to recapture the state
+            if answer == "n":
+                network_state, actual_state = self.get_workspace_state()
+
+            # If the user wants to flip the yaw angle
+            if answer == "f":
+                if network_state[2] == 1 or network_state[2] == 2:
+                    network_state[2] += 2
+                elif network_state[2] == 3 or network_state[2] == 4:
+                    network_state[2] -= 2
+                if actual_state[4] >= 0:
+                    actual_state[4] -= pi
+                    print_state[4] = round((print_state[4] - 180.000), 5)
+                elif actual_state[4] < 0:
+                    actual_state[4] += pi
+                    print_state[4] = round((print_state[4] + 180.000), 5)
+                self.get_logger().warn(f"Flipped Network State: {network_state}")
+                self.get_logger().warn(f"Flipped Actual State: {print_state}; Index: {index + 1}")
 
         return network_state, actual_state
 
@@ -1196,6 +1216,20 @@ class Utility(Node):
         self.planning_scene.process_collision_object(pillar_collision)
         self.planning_scene.process_collision_object(computer_collision)
         self.planning_scene.process_collision_object(ur_collision)
+
+    def get_last_state_amount(self, buffer):
+        index = buffer.size - 1
+        last_state = buffer.state[index]
+
+        for i in range(1, buffer.size + 1):
+            laster_index = index - i
+            laster_state = buffer.state[laster_index]
+            if not np.array_equal(laster_state, last_state):
+                last_state_amount = index - laster_index
+                break
+
+        self.get_logger().info("Last State: " + str(last_state))
+        self.get_logger().info("Last State Amount: " + str(last_state_amount))
 
     def loop_check(self):
         # Print statement for looks
