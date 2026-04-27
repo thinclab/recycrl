@@ -18,18 +18,19 @@ from recycRL import RecycRL, REINFORCE, A2P
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+
 def main():
     # Define arguments
     description = "This script plots the reward model as a perturbations are added to the three policy actions"
     parser = ArgumentParser(description=description)
-    parser.add_argument("-dim_index", dest="dim_index", default="1", help="Index of action dimension to plot")
-    parser.add_argument("-x_min", dest="x_min", default="-0.12", help="Minimum x value for plotting")
-    parser.add_argument("-x_max", dest="x_max", default="0.12", help="Maximum x value for plotting")
     parser.add_argument("-num_points", dest="num_points", default="1000", help="Number of points to plot")
     parser.add_argument("-state", dest="state", default="[1, 1, 1, 1]", help="State to pass through reward model")
-    parser.add_argument("--add_noise", dest="add_noise", action="store_true", help="Add noise to the actions")
-    parser.add_argument("-noise_magnitude", dest="max_noise", default="[0.05, 0.05, 0.05, 0.50, 0.50, 0.50]", help="Magnitude of noise to add")
-    parser.add_argument("-beta", dest="beta", default="0.75", help="Coefficient to multiply standard deviation for penalized reward")
+    parser.add_argument(
+        "-noise_magnitude", dest="max_noise", default="[0.05, 0.05, 0.05, 0.50, 0.50, 0.50]", help="Magnitude of noise to add"
+    )
+    parser.add_argument(
+        "-beta", dest="beta", default="0.75", help="Coefficient to multiply standard deviation for penalized reward"
+    )
     parser.add_argument(
         "-model_path",
         dest="model_path",
@@ -48,12 +49,8 @@ def main():
 
     # Parse and assign arguments
     args = parser.parse_args()
-    dim_index = int(args.dim_index)
-    x_min = float(args.x_min)
-    x_max = float(args.x_max)
     num_points = int(args.num_points)
     state = literal_eval(args.state)
-    add_noise = args.add_noise
     max_noise = literal_eval(args.max_noise)
     beta = float(args.beta)
     network_amount = int(args.network_amount)
@@ -75,14 +72,22 @@ def main():
     a2p_rl = A2P()
 
     # If the RL models have been saved previously, load the models
-    if os.path.exists(f"{rl_path}/Policy") and os.path.exists(f"{rl_path}/Policy_REINFORCE") and os.path.exists(f"{rl_path}/Policy_A2P"):
+    if (
+        os.path.exists(f"{rl_path}/Policy")
+        and os.path.exists(f"{rl_path}/Policy_REINFORCE")
+        and os.path.exists(f"{rl_path}/Policy_A2P")
+    ):
         par_rl.load(rl_path)
         reinforce_rl.load(rl_path)
         a2p_rl.load(rl_path)
         logger.info("Policies ready")
 
     # If one of the RL models does not exist, notify the user and return
-    elif not os.path.exists(f"{rl_path}/Policy") or not os.path.exists(f"{rl_path}/Policy_REINFORCE") or not os.path.exists(f"{rl_path}/Policy_A2P"):
+    elif (
+        not os.path.exists(f"{rl_path}/Policy")
+        or not os.path.exists(f"{rl_path}/Policy_REINFORCE")
+        or not os.path.exists(f"{rl_path}/Policy_A2P")
+    ):
         logger.error("One or more policies do not exist, provide correct path")
         return
 
@@ -118,22 +123,6 @@ def main():
     base_par_action = par_rl.select_action(numpy_state, add_noise=False)
     base_reinforce_action = reinforce_rl.select_action(numpy_state, add_noise=False)
     base_a2p_action = a2p_rl.select_action(numpy_state, add_noise=False)
-
-    # Convert the actions to tensors
-    base_par_tensor = torch.FloatTensor(base_par_action).unsqueeze(0).to(device)
-    base_reinforce_tensor = torch.FloatTensor(base_reinforce_action).unsqueeze(0).to(device)
-    base_a2p_tensor = torch.FloatTensor(base_a2p_action).unsqueeze(0).to(device)
-
-    # Compute the mean and standard deviation of the base actions for each policy
-    with torch.no_grad():
-        par_mean, par_std = reward_model.reward_model.predict(tensor_state, base_par_tensor)
-        reinforce_mean, reinforce_std = reward_model.reward_model.predict(tensor_state, base_reinforce_tensor)
-        a2p_mean, a2p_std = reward_model.reward_model.predict(tensor_state, base_a2p_tensor)
-
-    # Calculate the base reward for each policy with the uncertainty penalized reward
-    base_par_reward = (par_mean - beta * par_std).item()
-    base_reinforce_reward = (reinforce_mean - beta * reinforce_std).item()
-    base_a2p_reward = (a2p_mean - beta * a2p_std).item()
 
     # Define empty lists for determining direction to add noise
     par_noise_direction = []
@@ -214,6 +203,7 @@ def main():
     # plt.tight_layout()
     plt.subplots_adjust(bottom=0.15)
     plt.show()
+
 
 if __name__ == "__main__":
     main()

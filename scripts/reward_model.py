@@ -36,6 +36,13 @@ class Model(nn.Module):
         # Pass the converted input through the networks
         return [model(sa) for model in self.models]
 
+    def solo_predict(self, state, action):
+        # Pass the state and action through the networks
+        raw_outputs = self.forward(state, action)
+
+        # Apply sigmoid to the first raw output
+        return torch.sigmoid(raw_outputs[0])
+
     def predict(self, state, action):
         # Pass the state and action through the networks
         raw_outputs = self.forward(state, action)

@@ -123,22 +123,22 @@ def main():
         # Initialize the RecycRL Class
         rl = RecycRL(state_dim, action_dim, min_action, max_action, expl_noise, noise_clip)
 
-        # Define the search path 
+        # Define the search path
         search_path = rl_path + "/Policy"
 
     # If the user wants to optimize with the REINFORCE objective
     elif objective == "REINFORCE":
         # Initialize the REINFORCE Class
         rl = REINFORCE(state_dim, action_dim, min_action, max_action, expl_noise, noise_clip)
-        
-        # Define the search path 
+
+        # Define the search path
         search_path = rl_path + "/Policy_REINFORCE"
 
     elif objective == "A2P":
         # Initialize the A2P Class
         rl = A2P(state_dim, action_dim, min_action, max_action, expl_noise, noise_clip)
-        
-        # Define the search path 
+
+        # Define the search path
         search_path = rl_path + "/Policy_A2P"
 
     # If the user provides and invalid objective, notify the user and return

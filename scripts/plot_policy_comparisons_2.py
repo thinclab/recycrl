@@ -18,9 +18,12 @@ from recycRL import RecycRL, REINFORCE, A2P
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+
 def main():
     # Define arguments
-    description = "This script plots the reward model as a perturbation is added to a single dimension of the three policy actions"
+    description = (
+        "This script plots the reward model as a perturbation is added to a single dimension of the three policy actions"
+    )
     parser = ArgumentParser(description=description)
     parser.add_argument("-dim_index", dest="dim_index", default="1", help="Index of action dimension to plot")
     parser.add_argument("-x_min", dest="x_min", default="-0.12", help="Minimum x value for plotting")
@@ -28,8 +31,15 @@ def main():
     parser.add_argument("-action_num", dest="action_num", default="20", help="Number of actions to generate for given dimension")
     parser.add_argument("-state", dest="state", default="[1, 1, 1, 1]", help="State to pass through reward model")
     parser.add_argument("--add_noise", dest="add_noise", action="store_true", help="Add noise to the actions")
-    parser.add_argument("-noise_magnitude", dest="noise_magnitude", default="[0.02, 0.02, 0.02, 0.20, 0.20, 0.20]", help="Magnitude of noise to add")
-    parser.add_argument("-beta", dest="beta", default="0.75", help="Coefficient to multiply standard deviation for penalized reward")
+    parser.add_argument(
+        "-noise_magnitude",
+        dest="noise_magnitude",
+        default="[0.02, 0.02, 0.02, 0.20, 0.20, 0.20]",
+        help="Magnitude of noise to add",
+    )
+    parser.add_argument(
+        "-beta", dest="beta", default="0.75", help="Coefficient to multiply standard deviation for penalized reward"
+    )
     parser.add_argument(
         "-model_path",
         dest="model_path",
@@ -75,14 +85,22 @@ def main():
     a2p_rl = A2P()
 
     # If the RL models have been saved previously, load the models
-    if os.path.exists(f"{rl_path}/Policy") and os.path.exists(f"{rl_path}/Policy_REINFORCE") and os.path.exists(f"{rl_path}/Policy_A2P"):
+    if (
+        os.path.exists(f"{rl_path}/Policy")
+        and os.path.exists(f"{rl_path}/Policy_REINFORCE")
+        and os.path.exists(f"{rl_path}/Policy_A2P")
+    ):
         par_rl.load(rl_path)
         reinforce_rl.load(rl_path)
         a2p_rl.load(rl_path)
         logger.info("Policies ready")
 
     # If one of the RL models does not exist, notify the user and return
-    elif not os.path.exists(f"{rl_path}/Policy") or not os.path.exists(f"{rl_path}/Policy_REINFORCE") or not os.path.exists(f"{rl_path}/Policy_A2P"):
+    elif (
+        not os.path.exists(f"{rl_path}/Policy")
+        or not os.path.exists(f"{rl_path}/Policy_REINFORCE")
+        or not os.path.exists(f"{rl_path}/Policy_A2P")
+    ):
         logger.error("One or more policies do not exist, provide correct path")
         return
 
@@ -157,7 +175,9 @@ def main():
 
         # Get the mean and standard deviation of the policy actions
         par_mean, par_std = reward_model.reward_model.predict(tensor_state, torch.FloatTensor(par_action).unsqueeze(0).to(device))
-        reinforce_mean, reinforce_std = reward_model.reward_model.predict(tensor_state, torch.FloatTensor(reinforce_action).unsqueeze(0).to(device))
+        reinforce_mean, reinforce_std = reward_model.reward_model.predict(
+            tensor_state, torch.FloatTensor(reinforce_action).unsqueeze(0).to(device)
+        )
         a2p_mean, a2p_std = reward_model.reward_model.predict(tensor_state, torch.FloatTensor(a2p_action).unsqueeze(0).to(device))
 
         # Get the uncertainty penalized rewards for the par and standard policies

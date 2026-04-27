@@ -6,11 +6,9 @@ using the trained reward model and differing objectives
 """
 
 import os
-import copy
 import torch
 import numpy as np
 import torch.nn as nn
-from csv import writer
 from reward_model import RewardModel
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -38,6 +36,7 @@ class Actor(nn.Module):
     def forward(self, x):
         # Pass input through network and restrict between min and max action values
         return self.min_action + (torch.tanh(self.actor(x)) + 1.0) * 0.5 * (self.max_action - self.min_action)
+
 
 class RecycRL(object):
     def __init__(
@@ -153,11 +152,11 @@ class RecycRL(object):
         # Get the number of steps for each action dimension
         num_steps = (max_delta / step).ceil()
 
-        # Get the maximum step amount from array 
+        # Get the maximum step amount from array
         max_steps = int(num_steps.max().item())
 
-        # Create a matrix of incrementally increasing values up to the max_steps value -> (max_steps) 
-        increments = torch.arange(1, max_steps+1, device=device)
+        # Create a matrix of incrementally increasing values up to the max_steps value -> (max_steps)
+        increments = torch.arange(1, max_steps + 1, device=device)
 
         # Generate a tensor of all increment steps in each action dimension
         # Convert "increments" tensor from (max_steps) -> (max_steps, 1)
@@ -191,17 +190,22 @@ class RecycRL(object):
         # Flatten the actions above so that they can be passed through the reward model; (2*b*m*a, a)
         all_actions_flat = all_actions.reshape(-1, action_dim)
 
-        # Generate a tensor of corresponding states for all actions 
+        # Generate a tensor of corresponding states for all actions
         # Convert "states" from (batch_size, state_dim) -> (batch_size, 1, 1, state_dim)
         # Expand "states" or duplicate entries to generate array of size (b, 2*m, a, s)
         # Convert the tensor from (b, 2*m, a, s) -> (2*b*m*a, s)
-        states_flat = (states.unsqueeze(1).unsqueeze(1).expand(batch_size, 2 * max_steps, action_dim, -1).reshape(batch_size * 2 * max_steps * action_dim, -1))
+        states_flat = (
+            states.unsqueeze(1)
+            .unsqueeze(1)
+            .expand(batch_size, 2 * max_steps, action_dim, -1)
+            .reshape(batch_size * 2 * max_steps * action_dim, -1)
+        )
 
         # Pass all of the perturbed actions with the corresponding states through the reward model
         means, stds = self.reward_model.reward_model.predict(states_flat, all_actions_flat)
 
         # Calculate the score (LCB) for all of the perturbed actions and convert from (b * a, 1) -> (b, a)
-        scores = (means - beta * stds)
+        scores = means - beta * stds
 
         # Convert scores from (2*b*m*a, 1) -> (b, 2*m, a)
         scores = scores.view(batch_size, 2 * max_steps, action_dim)
@@ -216,7 +220,7 @@ class RecycRL(object):
         scores = scores * valid_mask.unsqueeze(0)
 
         # Sum the scores across 2nd and 3rd dimensions (b, 2*m, a)
-        score = scores.sum(dim=(1,2))
+        score = scores.sum(dim=(1, 2))
 
         # Calculate the normalizer, which is twice the number of steps
         normalizer = 2 * num_steps.sum()
@@ -235,6 +239,7 @@ class RecycRL(object):
         self.actor.load_state_dict(torch.load(filename + "/Policy"))
         self.actor_optimizer.load_state_dict(torch.load(filename + "/Policy_Optimizer"))
         self.total_it = int(np.load(filename + "/Policy_Iterations.npy"))
+
 
 class REINFORCE(object):
     def __init__(
@@ -276,14 +281,14 @@ class REINFORCE(object):
         # Pass the state through the actor network to get the action
         action = self.actor(state)
 
-        print("Action before noise", action.cpu().detach().numpy().flatten())
+        # print("Action before noise", action.cpu().detach().numpy().flatten())
 
         # If the "add_noise" flag is set to True
         if add_noise:
             # Get random noise based on Gaussian with 0 mean and "expl_noise" variance with action size
             noise = (torch.randn_like(action) * self.expl_noise).clamp(-self.noise_clip, self.noise_clip)
 
-            print("Noise:", noise.cpu().detach().numpy().flatten())
+            # print("Noise:", noise.cpu().detach().numpy().flatten())
 
             # Add the noise to the action
             action = action + noise
@@ -340,6 +345,7 @@ class REINFORCE(object):
         self.actor_optimizer.load_state_dict(torch.load(filename + "/Policy_REINFORCE_Optimizer"))
         self.total_it = int(np.load(filename + "/Policy_REINFORCE_Iterations.npy"))
 
+
 class A2P(object):
     def __init__(
         self,
@@ -384,14 +390,14 @@ class A2P(object):
         # Pass the state through the actor network to get the action
         action = self.actor(state)
 
-        print("Action before noise", action.cpu().detach().numpy().flatten())
+        # print("Action before noise", action.cpu().detach().numpy().flatten())
 
         # If the "add_noise" flag is set to True
         if add_noise:
             # Get random noise based on Gaussian with 0 mean and "expl_noise" variance with action size
             noise = (torch.randn_like(action) * self.expl_noise).clamp(-self.noise_clip, self.noise_clip)
 
-            print("Noise:", noise.cpu().detach().numpy().flatten())
+            # print("Noise:", noise.cpu().detach().numpy().flatten())
 
             # Add the noise to the action
             action = action + noise
@@ -427,7 +433,7 @@ class A2P(object):
             # Update the epsilon value based on the actions
             self.update_epsilon(actions, adversarial_actions, alpha, gamma)
 
-        # Scale the actor and adversarial actions according to epsilon and combine, done twice to separate gradients for actor and adversary
+        # Scale the actor and adversarial actions according to epsilon and combine, done twice to separate gradients
         combined_actions = actions * (1 - self.epsilon) + adversarial_actions.detach() * self.epsilon
         combined_adv_actions = actions.detach() * (1 - self.epsilon) + adversarial_actions * self.epsilon
 

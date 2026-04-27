@@ -8,6 +8,7 @@ import os
 from argparse import ArgumentParser
 from recycRL import RecycRL, REINFORCE, A2P
 
+
 def main():
     # Define arguments
     description = "Script that loads the RL model and prints the actions for all states"
@@ -45,15 +46,15 @@ def main():
     elif objective == "REINFORCE":
         # Initialize the REINFORCE Class
         rl = REINFORCE()
-        
-        # Define the search path 
+
+        # Define the search path
         search_path = rl_path + "/Policy_REINFORCE"
 
     elif objective == "A2P":
         # Initialize the A2P Class
         rl = A2P()
-        
-        # Define the search path 
+
+        # Define the search path
         search_path = rl_path + "/Policy_A2P"
 
     # If the user provides and invalid objective, notify the user and return
@@ -71,7 +72,7 @@ def main():
         print("Policy does not exist, provide correct path")
         return
 
-    # Loop through first dimension of state 
+    # Loop through first dimension of state
     for i in range(1, 5):
         # Loop through third dimension of state
         for j in range(1, 5):
