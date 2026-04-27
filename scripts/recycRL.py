@@ -67,7 +67,6 @@ class RecycRL(object):
         self.expl_noise = torch.tensor(expl_noise, device=device)  # Amount of noise to add to action
         self.noise_clip = torch.tensor(noise_clip, device=device)  # Maximum noise to add
         self.total_it = 0  # Tracking variable for number of iterations
-        self.prev_rewards = []  # Tracking variable for previous rewards
 
         # If the reward model has been saved previously, load the model
         if os.path.exists(f"{model_path}/Reward_Model"):
@@ -231,37 +230,11 @@ class RecycRL(object):
         torch.save(self.actor.state_dict(), filename + "/Policy")
         torch.save(self.actor_optimizer.state_dict(), filename + "/Policy_Optimizer")
         np.save(filename + "/Policy_Iterations.npy", self.total_it)
-        np.save(filename + "/Policy_Previous_Rewards.npy", self.prev_rewards)
 
     def load(self, filename):
         self.actor.load_state_dict(torch.load(filename + "/Policy"))
         self.actor_optimizer.load_state_dict(torch.load(filename + "/Policy_Optimizer"))
         self.total_it = int(np.load(filename + "/Policy_Iterations.npy"))
-        self.prev_rewards = np.load(filename + "/Policy_Previous_Rewards.npy").tolist()
-
-    def evaluate_policy(self, reward, filename):
-        # Add the most recent reward to the list of previous rewards
-        self.prev_rewards.append(reward)
-
-        # If there are more than 20 previous rewards
-        if len(self.prev_rewards) >= 20:
-            # Calculate the average reward over the last 20 rewards
-            avg_reward = sum(self.prev_rewards) / 20
-
-            # Append the average reward and current iteration to a CSV file
-            with open(filename + "_average_rewards.csv", mode="a") as file:
-                write_file = writer(file)
-                write_file.writerow([f"{self.total_it}: {avg_reward}"])
-
-            # Remove the oldest reward
-            self.prev_rewards.pop(0)
-
-        # Otherwise, the reward average is 0
-        else:
-            avg_reward = 0
-
-        return avg_reward
-
 
 class REINFORCE(object):
     def __init__(
@@ -291,7 +264,6 @@ class REINFORCE(object):
         self.expl_noise = torch.tensor(expl_noise, device=device)  # Amount of noise to add to action
         self.noise_clip = torch.tensor(noise_clip, device=device)  # Maximum noise to add
         self.total_it = 0  # Tracking variable for number of iterations
-        self.prev_rewards = []  # Tracking variable for previous rewards
 
         # If the reward model has been saved previously, load the model
         if os.path.exists(f"{model_path}/Reward_Model"):
@@ -362,37 +334,11 @@ class REINFORCE(object):
         torch.save(self.actor.state_dict(), filename + "/Policy_REINFORCE")
         torch.save(self.actor_optimizer.state_dict(), filename + "/Policy_REINFORCE_Optimizer")
         np.save(filename + "/Policy_REINFORCE_Iterations.npy", self.total_it)
-        np.save(filename + "/Policy_REINFORCE_Previous_Rewards.npy", self.prev_rewards)
 
     def load(self, filename):
         self.actor.load_state_dict(torch.load(filename + "/Policy_REINFORCE"))
         self.actor_optimizer.load_state_dict(torch.load(filename + "/Policy_REINFORCE_Optimizer"))
         self.total_it = int(np.load(filename + "/Policy_REINFORCE_Iterations.npy"))
-        self.prev_rewards = np.load(filename + "/Policy_REINFORCE_Previous_Rewards.npy").tolist()
-
-    def evaluate_policy(self, reward, filename):
-        # Add the most recent reward to the list of previous rewards
-        self.prev_rewards.append(reward)
-
-        # If there are more than 20 previous rewards
-        if len(self.prev_rewards) >= 20:
-            # Calculate the average reward over the last 20 rewards
-            avg_reward = sum(self.prev_rewards) / 20
-
-            # Append the average reward and current iteration to a CSV file
-            with open(filename + "_average_rewards.csv", mode="a") as file:
-                write_file = writer(file)
-                write_file.writerow([f"{self.total_it}: {avg_reward}"])
-
-            # Remove the oldest reward
-            self.prev_rewards.pop(0)
-
-        # Otherwise, the reward average is 0
-        else:
-            avg_reward = 0
-
-        return avg_reward
-
 
 class A2P(object):
     def __init__(
@@ -426,7 +372,6 @@ class A2P(object):
         self.d = 0  # Tracking variable for moving average of distance between action and adversarial action
         self.epsilon = 0.1  # Variable for adversarial coefficient
         self.total_it = 0  # Tracking variable for number of iterations
-        self.prev_rewards = []  # Tracking variable for previous rewards
 
         # If the reward model has been saved previously, load the model
         if os.path.exists(f"{model_path}/Reward_Model"):
@@ -546,7 +491,6 @@ class A2P(object):
         np.save(filename + "/Policy_A2P_Distance.npy", self.d)
         np.save(filename + "/Policy_A2P_Epsilon.npy", self.epsilon)
         np.save(filename + "/Policy_A2P_Iterations.npy", self.total_it)
-        np.save(filename + "/Policy_A2P_Previous_Rewards.npy", self.prev_rewards)
 
     def load(self, filename):
         self.actor.load_state_dict(torch.load(filename + "/Policy_A2P"))
@@ -554,4 +498,3 @@ class A2P(object):
         self.d = float(np.load(filename + "/Policy_A2P_Distance.npy"))
         self.epsilon = float(np.load(filename + "/Policy_A2P_Epsilon.npy"))
         self.total_it = int(np.load(filename + "/Policy_A2P_Iterations.npy"))
-        self.prev_rewards = np.load(filename + "/Policy_A2P_Previous_Rewards.npy").tolist()
