@@ -16,7 +16,7 @@ def main():
     parser.add_argument(
         "-buffer_path",
         dest="buffer_path",
-        default="~/RecycRL/Expert_Buffer",
+        default="~/RecycRL/Online_Buffer",
         help="Path to load and save the replay buffer with demonstrations",
     )
     parser.add_argument(

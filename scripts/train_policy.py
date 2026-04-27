@@ -6,20 +6,29 @@ This script gives the training sequence for the policy after a reward model has 
 
 import os
 import rclpy
+import torch
+import random
 import numpy as np
+from time import time
 from utils import Utility
-from recycRL import RecycRL
 from ast import literal_eval
 from argparse import ArgumentParser
 from rclpy.logging import get_logger
 from replay_buffer import ReplayBuffer
+from recycRL import RecycRL, REINFORCE, A2P
 
 
 def main():
     # Define arguments
     description = "Node that goes through the RL training process"
     parser = ArgumentParser(description=description)
-    parser.add_argument("-training_steps", dest="training_steps", default="100000", help="Number of training steps")
+    parser.add_argument("-training_steps", dest="training_steps", default="20000", help="Number of training steps")
+    parser.add_argument(
+        "-objective",
+        dest="objective",
+        default="Custom",
+        help="Objective to optimize the policy ('Custom', 'REINFORCE', 'A2P')",
+    )
     parser.add_argument(
         "-rl_path",
         dest="rl_path",
@@ -58,12 +67,26 @@ def main():
         default="[0.1, 0.1, 0.1, 0.7853981634, 0.7853981634, 0.7853981634]",
         help="Maximum action values vector for x, y, and z position outputs",
     )
-    parser.add_argument("-expert_batch_size", dest="expert_batch_size", default="80", help="Batch size for expert buffer")
-    parser.add_argument("-online_batch_size", dest="online_batch_size", default="80", help="Batch size for online buffer")
+    parser.add_argument("-expert_batch_size", dest="expert_batch_size", default="200", help="Batch size for expert buffer")
+    parser.add_argument("-online_batch_size", dest="online_batch_size", default="0", help="Batch size for online buffer")
+
+    # Get a random seed for the randomization of torch, numpy, and Pythons' random
+    # seed = int(time())
+    seed = 0
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+
+    # Use this for deterministic results
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
     # Parse and assign arguments
     args = parser.parse_args()
     training_steps = int(args.training_steps)
+    objective = args.objective
     rl_path = args.rl_path
     reward_model_path = args.reward_model_path
     expert_buffer_path = args.expert_buffer_path
@@ -109,16 +132,48 @@ def main():
     # Initialize rclpy
     rclpy.init()
 
-    # Initialize the RecycRL Class
-    rl = RecycRL(state_dim, action_dim, min_action, max_action, model_path=reward_model_path)
+    # If the user wants to optimize with the PAR objective
+    if objective == "PAR":
+        # Initialize the RecycRL Class
+        rl = RecycRL(state_dim, action_dim, min_action, max_action, model_path=reward_model_path)
+
+        # Define the search path 
+        search_path = rl_path + "/Policy"
+
+    # If the user wants to optimize with the REINFORCE objective
+    elif objective == "REINFORCE":
+        # Initialize the REINFORCE Class
+        rl = REINFORCE(state_dim, action_dim, min_action, max_action, model_path=reward_model_path)
+        
+        # Define the search path 
+        search_path = rl_path + "/Policy_REINFORCE"
+
+    # If the user wants to optimize with the A2P objective
+    elif objective == "A2P":
+        # Initialize the A2P Class
+        rl = A2P(state_dim, action_dim, min_action, max_action, model_path=reward_model_path)
+        
+        # Define the search path 
+        search_path = rl_path + "/Policy_A2P"
+
+    # If the user provides and invalid objective, notify the user and return
+    elif objective != "PAR" and objective != "REINFORCE" and objective != "A2P":
+        logger.error("Objective invalid")
+        return
+
+    # for p1 in rl.actor.parameters():
+    #     print(p1.sum().item())
 
     # If the RL model has been saved previously, load it
-    if os.path.exists(f"{rl_path}/Policy"):
+    if os.path.exists(search_path):
         rl.load(rl_path)
 
     # If the RL model does not exist, create the save directory
-    elif not os.path.exists(f"{rl_path}/Policy"):
+    elif not os.path.exists(search_path):
         os.makedirs(os.path.dirname(rl_path), exist_ok=True)
+
+    # for p1 in rl.actor.parameters():
+    #     print(p1.sum().item())
 
     # If the reward model in the policy was not loaded correctly, notify the user and return
     if rl.reward_model.total_it == 0:

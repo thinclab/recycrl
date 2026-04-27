@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 
 """
-This script provides the Actor() and RecycRL() Classes for specifying and training a policy
-using the trained reward model
+This script provides the Actor(), RecycRL(), REINFORCE(), and A2P() Classes for training a policy
+using the trained reward model and differing objectives
 """
 
 import os
@@ -39,7 +39,6 @@ class Actor(nn.Module):
         # Pass input through network and restrict between min and max action values
         return self.min_action + (torch.tanh(self.actor(x)) + 1.0) * 0.5 * (self.max_action - self.min_action)
 
-
 class RecycRL(object):
     def __init__(
         self,
@@ -53,7 +52,6 @@ class RecycRL(object):
     ):
         # Define NN for actor and copy it for target network, then define optimizer
         self.actor = Actor(state_dim, action_dim, min_action, max_action).to(device)
-        self.actor_target = copy.deepcopy(self.actor)
         self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), lr=3e-4)
 
         # Initialize the RewardModel Class
@@ -82,14 +80,14 @@ class RecycRL(object):
         # Pass the state through the actor network to get the action
         action = self.actor(state)
 
-        # print(action.cpu().detach().numpy().flatten())
+        # print("Action before noise", action.cpu().detach().numpy().flatten())
 
         # If the "add_noise" flag is set to True
         if add_noise:
             # Get random noise based on Gaussian with 0 mean and "expl_noise" variance with action size
             noise = (torch.randn_like(action) * self.expl_noise).clamp(-self.noise_clip, self.noise_clip)
 
-            # print(noise.cpu().detach().numpy().flatten())
+            # print("Noise:", noise.cpu().detach().numpy().flatten())
 
             # Add the noise to the action
             action = action + noise
@@ -103,12 +101,11 @@ class RecycRL(object):
     def train(
         self,
         batch,
-        beta=0.6,
-        base_threshold=0.95,
-        perturbation_threshold=0.80,
+        alpha=0.75,
+        beta=0.75,
         step=[0.001, 0.001, 0.001, 0.005, 0.005, 0.005],
-        max_delta=[0.05, 0.05, 0.05, 0.25, 0.25, 0.25],
-        use_baseline=False,
+        # max_delta=[0.010, 0.010, 0.010, 0.10, 0.10, 0.10],
+        max_delta=[0.025, 0.025, 0.025, 0.125, 0.125, 0.125],
         print_iterations=100,
     ):
         # Increment the iteration tracking variable
@@ -126,37 +123,16 @@ class RecycRL(object):
         # Get the scores of the actions which is the lower confidence bound
         scores = means - beta * stds
 
-        # Get the perturbation score for the base actions
-        perturbation_scores = self.get_perturbation_score(states, actions, perturbation_threshold, step, max_delta)
+        # Get the integral score for the base actions
+        integral_scores = alpha * self.get_integral_scores(beta, states, actions, step, max_delta)
 
-        # Generate a boolean mask on the actions which represents actions with scores that are above the threshold
-        passed_mask = scores >= base_threshold
-
-        # Convert the boolean mask to floats in order to multiply later (False -> 0.0 and True -> 1.0)
-        passed_scores = passed_mask.float()
-
-        # Multiply mask of floats by perturbation scores to keep scores for base actions that are above the threshold
-        passed_perturbation_scores = passed_scores * perturbation_scores
-
-        # If the user wants to train with a baseline
-        if use_baseline:
-            # Calculate the combined score for each action
-            combined_scores = scores + passed_perturbation_scores
-
-            # Calculate the batch's average combined score for a baseline
-            baseline = combined_scores.mean()
-
-            # Calculate the loss with the combined scores and baseline
-            loss = -(combined_scores - baseline).mean()
-
-        # If the user does not want to train with a baseline
-        elif not use_baseline:
-            # Calculate the loss which is the expected rewards plus the perturbation scores of passed actions
-            loss = -(scores + passed_perturbation_scores).mean()
+        # Calculate the loss which is the expected rewards plus the integral scores
+        loss = -(scores + integral_scores).mean()
 
         # Print the loss after we have reached a multiple of 'print_iterations'
         if self.total_it % print_iterations == 0:
-            print("Perturbation Score", passed_perturbation_scores.mean())
+            print("Integral Score", integral_scores.mean().item())
+            print("LCB Score:", scores.mean().item())
             print("Mean:", means.mean().item())
             print("Std:", stds.mean().item())
             print(f"Actor Loss: {loss.item()}")
@@ -167,14 +143,7 @@ class RecycRL(object):
         loss.backward()  # Backpropagate the loss
         self.actor_optimizer.step()  # Update the parameters
 
-    def get_perturbation_score(
-        self,
-        states,
-        actions,
-        pert_thresh,
-        step=[0.001, 0.001, 0.001, 0.005, 0.005, 0.005],
-        max_delta=[0.05, 0.05, 0.05, 0.25, 0.25, 0.25],
-    ):
+    def get_integral_scores(self, beta, states, actions, step, max_delta):
         # Get the batch size and action dimension size from the passed actions
         batch_size, action_dim = actions.shape
 
@@ -182,79 +151,81 @@ class RecycRL(object):
         step = torch.tensor(step, device=device)
         max_delta = torch.tensor(max_delta, device=device)
 
-        # Define tensors of all zeros of size (batch_size, action_dim) to hold current noise
-        # increment per dimension in negative and positive directions to be applied to actions
-        delta_pos = torch.zeros(batch_size, action_dim, device=device)
-        delta_neg = torch.zeros(batch_size, action_dim, device=device)
+        # Get the number of steps for each action dimension
+        num_steps = (max_delta / step).ceil()
 
-        # Define entirely True boolean tensors of size (batch_size, action_dim) which represent
-        # which action dimensions can still be incremented in both the negative and positive directions
-        active_pos = torch.ones(batch_size, action_dim, dtype=torch.bool, device=device)
-        active_neg = torch.ones(batch_size, action_dim, dtype=torch.bool, device=device)
+        # Get the maximum step amount from array 
+        max_steps = int(num_steps.max().item())
+
+        # Create a matrix of incrementally increasing values up to the max_steps value -> (max_steps) 
+        increments = torch.arange(1, max_steps+1, device=device)
+
+        # Generate a tensor of all increment steps in each action dimension
+        # Convert "increments" tensor from (max_steps) -> (max_steps, 1)
+        # Convert the "step" array from (action_dim) -> (1, action_dim)
+        # Multiply the "increments" by "step" to get tensor of all steps in each dimension (m, 1) * (1, a) = (m, a)
+        delta = increments.unsqueeze(1) * step.unsqueeze(0)
+
+        # Clamp delta to max_delta
+        delta = torch.minimum(delta, max_delta)
 
         # Define an identity matrix of size (action_dim, action_dim)
         identity = torch.eye(action_dim, device=device)
 
-        # Loop while there are dimensions that can have more incremental noise added
-        while active_pos.any() or active_neg.any():
-            # If any action dimensions can have positive noise added
-            if active_pos.any():
-                # Generate a tensor of the base actions with perturbations in each of the action dimensions
-                # Convert the "actions" tensor from (batch_size, action_dim) -> (batch_size, 1, action_dim)
-                # Convert the "delta_pos" tensor from (batch_size, action_dim) -> (batch_size, action_dim, 1)
-                # Multiply "delta_pos" by "identity" to get per dimension noise for each action (b, a, 1) * (a, a) -> (b, a, a)
-                # Add per dimension noise to all actions (b, a, 1) + (b, a, a) -> (b, a, a)
-                perturbed_actions = actions.unsqueeze(1) + delta_pos.unsqueeze(2) * identity
+        # Get total perturbations for each action dimension
+        # Convert "delta" tensor from (m, a) -> (m, a, 1)
+        # Multiply "delta" by "identity" to get (m, a, 1) * (a, a) = (m, a, a)
+        perturb = delta.unsqueeze(2) * identity
 
-                # Convert "perturbed_actions" from (b, a, a) -> (b * a, a) to pass through reward model
-                perturbed_actions_flat = perturbed_actions.view(batch_size * action_dim, action_dim)
+        # Convert the actions from (batch_size, action_dim) -> (batch_size, 1, 1, action_dim)
+        actions_exp = actions.unsqueeze(1).unsqueeze(1)
 
-                # Create a tensor of the passed states duplicated for the amount of perturbed actions
-                # Convert "states" from (batch_size, state_dim) -> (batch_size, 1, state_dim)
-                # Expand "states" or duplicate entries to generate array of size (batch_size, action_dim, state_dim)
-                # Convert the tensor from (batch_size, action_dim, state_dim) -> (batch_size * action_dim, state_dim)
-                states_flat = states.unsqueeze(1).expand(-1, action_dim, -1).reshape(batch_size * action_dim, -1)
+        # Calculate the positively perturbed actions; (b, 1, 1, a) + (1, m, a, a) = (b, m, a, a)
+        pos_actions = actions_exp + perturb.unsqueeze(0)
 
-                # Pass all of the perturbed actions with the corresponding states through the reward model
-                means, stds = self.reward_model.reward_model.predict(states_flat, perturbed_actions_flat)
+        # Calculate the negatively perturbed actions; (b, 1, 1, a) - (1, m, a, a) = (b, m, a, a)
+        neg_actions = actions_exp - perturb.unsqueeze(0)
 
-                # Calculate the score (LCB) for all of the perturbed actions and convert from (b * a, 1) -> (b, a)
-                score = (means - 0.4 * stds).view(batch_size, action_dim)
+        # Combine the positively and negatively perturbed actions; (b, 2*m, a, a)
+        all_actions = torch.cat([pos_actions, neg_actions], dim=1)
 
-                # Create a boolean mask for scores that are above the threshold and whose increments are less than the max
-                increment_mask = (score >= pert_thresh) & (delta_pos < max_delta) & active_pos
+        # Flatten the actions above so that they can be passed through the reward model; (2*b*m*a, a)
+        all_actions_flat = all_actions.reshape(-1, action_dim)
 
-                # Convert mask from boolean to float and multiply by step to increase the noise for passed perturbed actions
-                # Then add to the current noise increment tensor to generate the new noise tensor
-                delta_pos = delta_pos + increment_mask.float() * step
+        # Generate a tensor of corresponding states for all actions 
+        # Convert "states" from (batch_size, state_dim) -> (batch_size, 1, 1, state_dim)
+        # Expand "states" or duplicate entries to generate array of size (b, 2*m, a, s)
+        # Convert the tensor from (b, 2*m, a, s) -> (2*b*m*a, s)
+        states_flat = (states.unsqueeze(1).unsqueeze(1).expand(batch_size, 2 * max_steps, action_dim, -1).reshape(batch_size * 2 * max_steps * action_dim, -1))
 
-                # Assign the increment mask to the active_pos tensor for logic purposes
-                active_pos = increment_mask
+        # Pass all of the perturbed actions with the corresponding states through the reward model
+        means, stds = self.reward_model.reward_model.predict(states_flat, all_actions_flat)
 
-            # If any action dimensions can have negative noise added
-            if active_neg.any():
-                # See comments above; this section is for negative noise actions
-                perturbed_actions = actions.unsqueeze(1) - delta_neg.unsqueeze(2) * identity
-                perturbed_actions_flat = perturbed_actions.view(batch_size * action_dim, action_dim)
-                states_flat = states.unsqueeze(1).expand(-1, action_dim, -1).reshape(batch_size * action_dim, -1)
-                means, stds = self.reward_model.reward_model.predict(states_flat, perturbed_actions_flat)
-                scores = (means - 0.4 * stds).view(batch_size, action_dim)
-                decrement_mask = (scores >= pert_thresh) & (delta_neg < max_delta) & active_neg
-                delta_neg = delta_neg + decrement_mask.float() * step
-                active_neg = decrement_mask
+        # Calculate the score (LCB) for all of the perturbed actions and convert from (b * a, 1) -> (b, a)
+        scores = (means - beta * stds)
 
-        # After we have finished incrementing noise for all actions and the action dimensions and exited the loop, calculate the
-        # maximum positive and negative perturbations by subtracting step to offset last increment and clamping to "max_delta"
-        max_pos = torch.clamp(delta_pos - step, max=max_delta)
-        max_neg = torch.clamp(delta_neg - step, max=max_delta)
+        # Convert scores from (2*b*m*a, 1) -> (b, 2*m, a)
+        scores = scores.view(batch_size, 2 * max_steps, action_dim)
 
-        # Calculate total perturbation score for actions by adding per dimension positive and negative max perturbation
-        total_perturbation_scores = (max_pos + max_neg).sum(dim=1)
+        # Create a mask of size (max_steps, action_dim) that stores booleans for valid increments
+        valid_mask = (increments.unsqueeze(1) < num_steps.unsqueeze(0)).float()
 
-        # Normalize the perturbations score by dividing by the "max_delta" sum multiplied by two (for negative and positive)
-        perturbation_scores = total_perturbation_scores / 2 * max_delta.sum()
+        # Concatenate the valid mask with itself for negative and positive directions
+        valid_mask = torch.cat([valid_mask, valid_mask], dim=0)
 
-        return perturbation_scores
+        # Apply the boolean mask to the scores
+        scores = scores * valid_mask.unsqueeze(0)
+
+        # Sum the scores across 2nd and 3rd dimensions (b, 2*m, a)
+        score = scores.sum(dim=(1,2))
+
+        # Calculate the normalizer, which is twice the number of steps
+        normalizer = 2 * num_steps.sum()
+
+        # Calculate the normalized score for each action
+        normalized_score = score / normalizer
+
+        return normalized_score
 
     def save(self, filename):
         torch.save(self.actor.state_dict(), filename + "/Policy")
@@ -290,3 +261,297 @@ class RecycRL(object):
             avg_reward = 0
 
         return avg_reward
+
+
+class REINFORCE(object):
+    def __init__(
+        self,
+        state_dim=4,
+        action_dim=6,
+        min_action=[-0.10, -0.10, -0.01, -0.7853981634, -0.7853981634, -0.7853981634],
+        max_action=[0.10, 0.10, 0.10, 0.7853981634, 0.7853981634, 0.7853981634],
+        expl_noise=[0.02, 0.02, 0.02, 0.10, 0.10, 0.10],
+        noise_clip=[0.04, 0.04, 0.04, 0.20, 0.20, 0.20],
+        model_path="~/RecycRL",
+    ):
+        # Define NN for actor and copy it for target network, then define optimizer
+        self.actor = Actor(state_dim, action_dim, min_action, max_action).to(device)
+        self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), lr=3e-4)
+
+        # Initialize the RewardModel Class
+        self.reward_model = RewardModel(state_dim, action_dim)
+
+        # Expand the user to handle "~"
+        model_path = os.path.expanduser(model_path)
+
+        # Define global variables
+        self.action_dim = action_dim  # Dimension size of action
+        self.min_action = self.actor.min_action  # Array of corresponding minimum continuous action values
+        self.max_action = self.actor.max_action  # Array of corresponding maximum continuous action value
+        self.expl_noise = torch.tensor(expl_noise, device=device)  # Amount of noise to add to action
+        self.noise_clip = torch.tensor(noise_clip, device=device)  # Maximum noise to add
+        self.total_it = 0  # Tracking variable for number of iterations
+        self.prev_rewards = []  # Tracking variable for previous rewards
+
+        # If the reward model has been saved previously, load the model
+        if os.path.exists(f"{model_path}/Reward_Model"):
+            self.reward_model.load(model_path)
+
+    def select_action(self, state, add_noise=False):
+        # Convert the state to a row vector tensor and then add it to the GPU
+        state = torch.FloatTensor(np.array(state).reshape(1, -1)).to(device)
+
+        # Pass the state through the actor network to get the action
+        action = self.actor(state)
+
+        print("Action before noise", action.cpu().detach().numpy().flatten())
+
+        # If the "add_noise" flag is set to True
+        if add_noise:
+            # Get random noise based on Gaussian with 0 mean and "expl_noise" variance with action size
+            noise = (torch.randn_like(action) * self.expl_noise).clamp(-self.noise_clip, self.noise_clip)
+
+            print("Noise:", noise.cpu().detach().numpy().flatten())
+
+            # Add the noise to the action
+            action = action + noise
+
+        # Clamp final action to valid bounds
+        action = action.clamp(self.min_action, self.max_action)
+        # action = torch.max(torch.min(action, self.max_action), self.min_action)
+
+        return action.cpu().detach().numpy().flatten()
+
+    def train(
+        self,
+        batch,
+        beta=0.75,
+        print_iterations=100,
+    ):
+        # Increment the iteration tracking variable
+        self.total_it += 1
+
+        # Extract the states from the passed batch
+        states, _, _ = batch
+
+        # Get the actor's/policy's actions for each state
+        actions = self.actor(states)
+
+        # Pass states and actor's actions through the reward model to get the mean and variance of the expected reward
+        means, stds = self.reward_model.reward_model.predict(states, actions)
+
+        # Get the scores of the actions which is the lower confidence bound
+        scores = means - beta * stds
+
+        # Calculate the loss which is the expected rewards
+        loss = -(scores).mean()
+
+        # Print the loss after we have reached a multiple of 'print_iterations'
+        if self.total_it % print_iterations == 0:
+            print("Mean:", means.mean().item())
+            print("Std:", stds.mean().item())
+            print(f"Actor Loss: {loss.item()}")
+            print("")
+
+        # Optimize the actor
+        self.actor_optimizer.zero_grad()  # Clear old gradient
+        loss.backward()  # Backpropagate the loss
+        self.actor_optimizer.step()  # Update the parameters
+
+    def save(self, filename):
+        torch.save(self.actor.state_dict(), filename + "/Policy_REINFORCE")
+        torch.save(self.actor_optimizer.state_dict(), filename + "/Policy_REINFORCE_Optimizer")
+        np.save(filename + "/Policy_REINFORCE_Iterations.npy", self.total_it)
+        np.save(filename + "/Policy_REINFORCE_Previous_Rewards.npy", self.prev_rewards)
+
+    def load(self, filename):
+        self.actor.load_state_dict(torch.load(filename + "/Policy_REINFORCE"))
+        self.actor_optimizer.load_state_dict(torch.load(filename + "/Policy_REINFORCE_Optimizer"))
+        self.total_it = int(np.load(filename + "/Policy_REINFORCE_Iterations.npy"))
+        self.prev_rewards = np.load(filename + "/Policy_REINFORCE_Previous_Rewards.npy").tolist()
+
+    def evaluate_policy(self, reward, filename):
+        # Add the most recent reward to the list of previous rewards
+        self.prev_rewards.append(reward)
+
+        # If there are more than 20 previous rewards
+        if len(self.prev_rewards) >= 20:
+            # Calculate the average reward over the last 20 rewards
+            avg_reward = sum(self.prev_rewards) / 20
+
+            # Append the average reward and current iteration to a CSV file
+            with open(filename + "_average_rewards.csv", mode="a") as file:
+                write_file = writer(file)
+                write_file.writerow([f"{self.total_it}: {avg_reward}"])
+
+            # Remove the oldest reward
+            self.prev_rewards.pop(0)
+
+        # Otherwise, the reward average is 0
+        else:
+            avg_reward = 0
+
+        return avg_reward
+
+
+class A2P(object):
+    def __init__(
+        self,
+        state_dim=4,
+        action_dim=6,
+        min_action=[-0.10, -0.10, -0.01, -0.7853981634, -0.7853981634, -0.7853981634],
+        max_action=[0.10, 0.10, 0.10, 0.7853981634, 0.7853981634, 0.7853981634],
+        expl_noise=[0.02, 0.02, 0.02, 0.10, 0.10, 0.10],
+        noise_clip=[0.04, 0.04, 0.04, 0.20, 0.20, 0.20],
+        model_path="~/RecycRL",
+    ):
+        # Define NN for actor and adversarial actor, then define optimizers
+        self.actor = Actor(state_dim, action_dim, min_action, max_action).to(device)
+        self.actor_optimizer = torch.optim.Adam(self.actor.parameters(), lr=3e-4)
+        self.adversary = Actor(state_dim, action_dim, min_action, max_action).to(device)
+        self.adversary_optimizer = torch.optim.Adam(self.adversary.parameters(), lr=3e-4)
+
+        # Initialize the RewardModel Class
+        self.reward_model = RewardModel(state_dim, action_dim)
+
+        # Expand the user to handle "~"
+        model_path = os.path.expanduser(model_path)
+
+        # Define global variables
+        self.action_dim = action_dim  # Dimension size of action
+        self.min_action = self.actor.min_action  # Array of corresponding minimum continuous action values
+        self.max_action = self.actor.max_action  # Array of corresponding maximum continuous action value
+        self.expl_noise = torch.tensor(expl_noise, device=device)  # Amount of noise to add to action
+        self.noise_clip = torch.tensor(noise_clip, device=device)  # Maximum noise to add
+        self.d = 0  # Tracking variable for moving average of distance between action and adversarial action
+        self.epsilon = 0.1  # Variable for adversarial coefficient
+        self.total_it = 0  # Tracking variable for number of iterations
+        self.prev_rewards = []  # Tracking variable for previous rewards
+
+        # If the reward model has been saved previously, load the model
+        if os.path.exists(f"{model_path}/Reward_Model"):
+            self.reward_model.load(model_path)
+
+    def select_action(self, state, add_noise=False):
+        # Convert the state to a row vector tensor and then add it to the GPU
+        state = torch.FloatTensor(np.array(state).reshape(1, -1)).to(device)
+
+        # Pass the state through the actor network to get the action
+        action = self.actor(state)
+
+        print("Action before noise", action.cpu().detach().numpy().flatten())
+
+        # If the "add_noise" flag is set to True
+        if add_noise:
+            # Get random noise based on Gaussian with 0 mean and "expl_noise" variance with action size
+            noise = (torch.randn_like(action) * self.expl_noise).clamp(-self.noise_clip, self.noise_clip)
+
+            print("Noise:", noise.cpu().detach().numpy().flatten())
+
+            # Add the noise to the action
+            action = action + noise
+
+        # Clamp final action to valid bounds
+        action = action.clamp(self.min_action, self.max_action)
+        # action = torch.max(torch.min(action, self.max_action), self.min_action)
+
+        return action.cpu().detach().numpy().flatten()
+
+    def train(
+        self,
+        batch,
+        alpha=0.50,
+        beta=0.75,
+        gamma=0.10,
+        print_iterations=100,
+    ):
+        # Increment the iteration tracking variable
+        self.total_it += 1
+
+        # Extract the states from the passed batch
+        states, _, _ = batch
+
+        # Get the actor's actions for each state
+        actions = self.actor(states)
+
+        # Get the adversary's actions for each state
+        adversarial_actions = self.adversary(states)
+
+        # With gradient disabled
+        with torch.no_grad():
+            # Update the epsilon value based on the actions
+            self.update_epsilon(actions, adversarial_actions, alpha, gamma)
+
+        # Scale the actor and adversarial actions according to epsilon and combine, done twice to separate gradients for actor and adversary
+        combined_actions = actions * (1 - self.epsilon) + adversarial_actions.detach() * self.epsilon
+        combined_adv_actions = actions.detach() * (1 - self.epsilon) + adversarial_actions * self.epsilon
+
+        # Pass states and actor's actions through the reward model to get the mean and variance of the expected reward
+        means, stds = self.reward_model.reward_model.predict(states, combined_actions)
+        adv_means, adv_stds = self.reward_model.reward_model.predict(states, combined_adv_actions)
+
+        # Get the scores of the actions which is the lower confidence bound
+        scores = means - beta * stds
+        adv_scores = adv_means - beta * adv_stds
+
+        # Calculate the losses for the actor and adversary
+        actor_loss = -(scores).mean()
+        adversary_loss = adv_scores.mean()
+
+        # Print the loss after we have reached a multiple of 'print_iterations'
+        if self.total_it % print_iterations == 0:
+            print("Mean:", means.mean().item())
+            print("Std:", stds.mean().item())
+            print(f"Actor Loss: {actor_loss.item()}")
+            print(f"Adversary Loss: {adversary_loss.item()}")
+            print("")
+
+        # Optimize the actor and adversary
+        self.actor_optimizer.zero_grad()  # Clear old gradient
+        self.adversary_optimizer.zero_grad()  # Clear old gradient
+        actor_loss.backward()  # Backpropagate the loss
+        adversary_loss.backward()  # Backpropagate the loss
+        self.actor_optimizer.step()  # Update the parameters
+        self.adversary_optimizer.step()  # Update the parameters
+
+    def update_epsilon(self, actions, adversarial_actions, alpha, gamma):
+        # Calculate the difference between the actor and adversarial actions
+        action_diff = actions - adversarial_actions
+
+        # Get the norm of the vectors to calculate the distance between the two actions, then average
+        dist = torch.norm(action_diff).mean().item()
+
+        # Recompute the new d with the moving average
+        new_d = alpha * self.d + (1 - alpha) * dist
+
+        # Calculate the difference between the current distance and previous distance
+        dist_diff = new_d - self.d
+
+        # Get the sign of the distance difference
+        sign = np.sign(dist_diff)
+
+        # Get the magnitude of the distance difference using a sigmoid function
+        magnitude = torch.sigmoid(abs(torch.tensor(dist_diff))).item()
+
+        # Calculate the new epsilon value by subtracting the product of the sign and magnitude from the previous epsilon value
+        new_epsilon = (self.epsilon - gamma * sign * magnitude).clip(0.03, 0.20)
+
+        # Update d and epsilon values
+        self.d = new_d
+        self.epsilon = new_epsilon
+
+    def save(self, filename):
+        torch.save(self.actor.state_dict(), filename + "/Policy_A2P")
+        torch.save(self.actor_optimizer.state_dict(), filename + "/Policy_A2P_Optimizer")
+        np.save(filename + "/Policy_A2P_Distance.npy", self.d)
+        np.save(filename + "/Policy_A2P_Epsilon.npy", self.epsilon)
+        np.save(filename + "/Policy_A2P_Iterations.npy", self.total_it)
+        np.save(filename + "/Policy_A2P_Previous_Rewards.npy", self.prev_rewards)
+
+    def load(self, filename):
+        self.actor.load_state_dict(torch.load(filename + "/Policy_A2P"))
+        self.actor_optimizer.load_state_dict(torch.load(filename + "/Policy_A2P_Optimizer"))
+        self.d = float(np.load(filename + "/Policy_A2P_Distance.npy"))
+        self.epsilon = float(np.load(filename + "/Policy_A2P_Epsilon.npy"))
+        self.total_it = int(np.load(filename + "/Policy_A2P_Iterations.npy"))
+        self.prev_rewards = np.load(filename + "/Policy_A2P_Previous_Rewards.npy").tolist()

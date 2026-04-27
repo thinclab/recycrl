@@ -6,13 +6,16 @@ This node loads the trained policy, executes the policy, and adds to the online 
 
 import os
 import rclpy
+import torch
+import random
 import numpy as np
+from time import time
 from utils import Utility
 from ast import literal_eval
 from argparse import ArgumentParser
 from rclpy.logging import get_logger
-from recycRL import RecycRL
 from replay_buffer import ReplayBuffer
+from recycRL import RecycRL, REINFORCE, A2P
 
 
 def main():
@@ -24,6 +27,12 @@ def main():
         dest="rl_path",
         default="~/RecycRL",
         help="Path to save and load the RL model or actor",
+    )
+    parser.add_argument(
+        "-objective",
+        dest="objective",
+        default="Custom",
+        help="Objective used to optimize the policy",
     )
     parser.add_argument(
         "-online_buffer_path",
@@ -48,19 +57,37 @@ def main():
     parser.add_argument(
         "-expl_noise",
         dest="expl_noise",
-        default="[0.02, 0.02, 0.02, 0.10, 0.10, 0.10]",
+        # default="[0.02, 0.02, 0.02, 0.10, 0.10, 0.10]",
+        default="[0.015, 0.015, 0.015, 0.075, 0.075, 0.075]",
+        # default="[0.01, 0.01, 0.01, 0.05, 0.05, 0.05]",
         help="Exploration noise standard deviation",
     )
     parser.add_argument(
         "-noise_clip",
         dest="noise_clip",
-        default="[0.04, 0.04, 0.04, 0.20, 0.20, 0.20]",
+        # default="[0.04, 0.04, 0.04, 0.20, 0.20, 0.20]",
+        default="[0.03, 0.03, 0.03, 0.15, 0.15, 0.15]",
+        # default="[0.02, 0.02, 0.02, 0.10, 0.10, 0.10]",
         help="Maximum noise value",
     )
+
+    # Get a seed for the randomization of torch, numpy, and Pythons' random
+    # seed = int(time())
+    seed = 4
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+
+    # Use this for deterministic results
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
     # Parse and assign arguments
     args = parser.parse_args()
     rl_path = args.rl_path
+    objective = args.objective
     online_buffer_path = args.online_buffer_path
     state_dim = int(args.state_dim)
     action_dim = int(args.action_dim)
@@ -91,16 +118,41 @@ def main():
     # Initialize rclpy
     rclpy.init()
 
-    # Initialize the RecycRL Class
-    rl = RecycRL(state_dim, action_dim, min_action, max_action, expl_noise, noise_clip)
+    # If the user wants to optimize with the PAR objective
+    if objective == "PAR":
+        # Initialize the RecycRL Class
+        rl = RecycRL(state_dim, action_dim, min_action, max_action, expl_noise, noise_clip)
+
+        # Define the search path 
+        search_path = rl_path + "/Policy"
+
+    # If the user wants to optimize with the REINFORCE objective
+    elif objective == "REINFORCE":
+        # Initialize the REINFORCE Class
+        rl = REINFORCE(state_dim, action_dim, min_action, max_action, expl_noise, noise_clip)
+        
+        # Define the search path 
+        search_path = rl_path + "/Policy_REINFORCE"
+
+    elif objective == "A2P":
+        # Initialize the A2P Class
+        rl = A2P(state_dim, action_dim, min_action, max_action, expl_noise, noise_clip)
+        
+        # Define the search path 
+        search_path = rl_path + "/Policy_A2P"
+
+    # If the user provides and invalid objective, notify the user and return
+    elif objective != "PAR" and objective != "REINFORCE" and objective != "A2P":
+        logger.error("Objective invalid")
+        return
 
     # If the RL model has been saved previously, load the model
-    if os.path.exists(f"{rl_path}/Policy"):
+    if os.path.exists(search_path):
         rl.load(rl_path)
         logger.info("Policy ready")
 
     # If the RL model does not exist, notify the user and return
-    elif not os.path.exists(f"{rl_path}/Policy"):
+    elif not os.path.exists(search_path):
         logger.error("Policy does not exist, provide correct path")
         return
 
@@ -139,6 +191,8 @@ def main():
 
             # Pass the state through the actor network to get the action, add noise for exploration
             action = rl.select_action(network_state, add_noise=True)
+
+            # print("Action after noise:", action)
 
             # Go to the robot pose defined by the action
             executed, action = collect.execute_action(actual_state, action, penalize=False, train=True)
