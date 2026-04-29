@@ -1,0 +1,3 @@
+[submodule "buffalo-gym"]
+	path = buffalo-gym
+	url = https://github.com/thinclab/buffalo-gym.git
