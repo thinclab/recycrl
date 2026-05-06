@@ -357,7 +357,7 @@ class Utility(Node):
 
         return float(reward)
 
-    def add_to_buffer(self, buffer, state, action, reward, check=True):
+    def add_to_buffer(self, buffer, state, action, reward, check=True, log=False):
         # If in 'check' mode
         if check:
             # Block the program until the user has given the reward for the transition
@@ -372,7 +372,9 @@ class Utility(Node):
         # Add to the replay buffer
         buffer.add(state, action, reward)
 
-        self.get_logger().info("State, action, and reward added to replay buffer")
+        # If in 'log' mode
+        if log:
+            self.get_logger().info("State, action, and reward added to replay buffer")
 
     def save_buffer(self, buffer, buffer_path):
         # Save the replay buffer and a copy of it
@@ -393,6 +395,7 @@ class Utility(Node):
 
         return (state, action, reward)
 
+    # (JK) Better replanning for IK success but collision
     def go_to(self, position):
         # Define variables
         self.executed = False
@@ -482,48 +485,52 @@ class Utility(Node):
                 joint_angles = self.robot_state.get_joint_group_positions("manipulator")
                 action_position = self.construct_joint_position(joint_angles, initial_tolerance)
 
-            # If an IK solution is not found
-            if not found_ik:
-                # Define the pose goal
-                action_position = construct_link_constraint(
-                    "tcp",
-                    "world",
-                    [action[0], action[1], action[2]],
-                    initial_tolerance,
-                    [action[3], action[4], action[5], action[6]],
-                    initial_tolerance,
-                )
+                # # If an IK solution is not found
+                # if not found_ik:
+                #     # Define the pose goal
+                #     action_position = construct_link_constraint(
+                #         "tcp",
+                #         "world",
+                #         [action[0], action[1], action[2]],
+                #         initial_tolerance,
+                #         [action[3], action[4], action[5], action[6]],
+                #         initial_tolerance,
+                #     )
 
-            # Pass the goal position to the move function
-            executed = self.go_to(action_position)
-
-            # Define the tolerance
-            tolerance = initial_tolerance + tolerance_increase
-
-            # Loop the following until the action succeeds or we reach the max retry attempts
-            while (not executed) and (tolerance <= max_tolerance):
-                # If an IK solution is found
-                if found_ik:
-                    # Reconstruct the joint goal with incrementally increasing tolerance
-                    action_position = self.construct_joint_position(joint_angles, tolerance)
-
-                # If an IK solution is not found
-                if not found_ik:
-                    # Redefine the lift position with an increased tolerance
-                    action_position = construct_link_constraint(
-                        "tcp",
-                        "world",
-                        [action[0], action[1], action[2]],
-                        tolerance,
-                        [action[3], action[4], action[5], action[6]],
-                        tolerance,
-                    )
-
-                # Pass the action position to the move function
+                # Pass the goal position to the move function
                 executed = self.go_to(action_position)
 
-                # Increase the tolerance and try the approach again
-                tolerance += tolerance_increase
+                # Define the tolerance
+                tolerance = initial_tolerance + tolerance_increase
+
+                # Loop the following until the action succeeds or we reach the max retry attempts
+                while (not executed) and (tolerance <= max_tolerance):
+                    # If an IK solution is found
+                    if found_ik:
+                        # Reconstruct the joint goal with incrementally increasing tolerance
+                        action_position = self.construct_joint_position(joint_angles, tolerance)
+
+                    # # If an IK solution is not found
+                    # if not found_ik:
+                    #     # Redefine the lift position with an increased tolerance
+                    #     action_position = construct_link_constraint(
+                    #         "tcp",
+                    #         "world",
+                    #         [action[0], action[1], action[2]],
+                    #         tolerance,
+                    #         [action[3], action[4], action[5], action[6]],
+                    #         tolerance,
+                    #     )
+
+                    # Pass the action position to the move function
+                    executed = self.go_to(action_position)
+
+                    # Increase the tolerance and try the approach again
+                    tolerance += tolerance_increase
+
+            elif not found_ik:
+                self.get_logger().error("Could not find an IK solution for action")
+                executed = False
 
         # If the approach position could not be reached
         elif not approached:
@@ -559,48 +566,52 @@ class Utility(Node):
                     joint_angles = self.robot_state.get_joint_group_positions("manipulator")
                     action_position = self.construct_joint_position(joint_angles, initial_tolerance)
 
-                # If an IK solution is not found
-                if not found_ik:
-                    # Define the pose goal
-                    action_position = construct_link_constraint(
-                        "tcp",
-                        "world",
-                        [action[0], action[1], action[2]],
-                        initial_tolerance,
-                        [action[3], action[4], action[5], action[6]],
-                        initial_tolerance,
-                    )
+                    # # If an IK solution is not found
+                    # if not found_ik:
+                    #     # Define the pose goal
+                    #     action_position = construct_link_constraint(
+                    #         "tcp",
+                    #         "world",
+                    #         [action[0], action[1], action[2]],
+                    #         initial_tolerance,
+                    #         [action[3], action[4], action[5], action[6]],
+                    #         initial_tolerance,
+                    #     )
 
-                # Pass the goal position to the move function
-                executed = self.go_to(action_position)
-
-                # Define the tolerance
-                tolerance = initial_tolerance + tolerance_increase
-
-                # Loop the following until the action succeeds or we reach the max retry attempts
-                while (not executed) and (tolerance <= max_tolerance):
-                    # If an IK solution is found
-                    if found_ik:
-                        # Reconstruct the joint goal with incrementally increasing tolerance
-                        action_position = self.construct_joint_position(joint_angles, tolerance)
-
-                    # If an IK solution is not found
-                    if not found_ik:
-                        # Redefine the lift position with an increased tolerance
-                        action_position = construct_link_constraint(
-                            "tcp",
-                            "world",
-                            [action[0], action[1], action[2]],
-                            tolerance,
-                            [action[3], action[4], action[5], action[6]],
-                            tolerance,
-                        )
-
-                    # Pass the action position to the move function
+                    # Pass the goal position to the move function
                     executed = self.go_to(action_position)
 
-                    # Increase the tolerance and try the approach again
-                    tolerance += tolerance_increase
+                    # Define the tolerance
+                    tolerance = initial_tolerance + tolerance_increase
+
+                    # Loop the following until the action succeeds or we reach the max retry attempts
+                    while (not executed) and (tolerance <= max_tolerance):
+                        # If an IK solution is found
+                        if found_ik:
+                            # Reconstruct the joint goal with incrementally increasing tolerance
+                            action_position = self.construct_joint_position(joint_angles, tolerance)
+
+                        # If an IK solution is not found
+                        if not found_ik:
+                            # Redefine the lift position with an increased tolerance
+                            action_position = construct_link_constraint(
+                                "tcp",
+                                "world",
+                                [action[0], action[1], action[2]],
+                                tolerance,
+                                [action[3], action[4], action[5], action[6]],
+                                tolerance,
+                            )
+
+                        # Pass the action position to the move function
+                        executed = self.go_to(action_position)
+
+                        # Increase the tolerance and try the approach again
+                        tolerance += tolerance_increase
+
+                elif not found_ik:
+                    self.get_logger().error("Could not find an IK solution for action")
+                    executed = False
 
         return executed, fixed_action
 
@@ -637,48 +648,52 @@ class Utility(Node):
             joint_angles = self.robot_state.get_joint_group_positions("manipulator")
             approach_position = self.construct_joint_position(joint_angles, initial_tolerance)
 
-        # If an IK solution is not found
-        if not found_ik:
-            # Define the pose goal
-            approach_position = construct_link_constraint(
-                "tcp",
-                "world",
-                [x, y, z],
-                initial_tolerance,
-                [action[3], action[4], action[5], action[6]],
-                initial_tolerance,
-            )
+            # # If an IK solution is not found
+            # if not found_ik:
+            #     # Define the pose goal
+            #     approach_position = construct_link_constraint(
+            #         "tcp",
+            #         "world",
+            #         [x, y, z],
+            #         initial_tolerance,
+            #         [action[3], action[4], action[5], action[6]],
+            #         initial_tolerance,
+            #     )
 
-        # Pass the goal position to the move function
-        approached = self.go_to(approach_position)
-
-        # Define the tolerance
-        tolerance = initial_tolerance + tolerance_increase
-
-        # Loop the following until the approach action succeeds or we reach the max retry attempts
-        while (not approached) and (tolerance <= max_tolerance):
-            # If an IK solution is found
-            if found_ik:
-                # Reconstruct the joint goal with incrementally increasing tolerance
-                approach_position = self.construct_joint_position(joint_angles, tolerance)
-
-            # If an IK solution is not found
-            if not found_ik:
-                # Redefine the lift position with an increased tolerance
-                approach_position = construct_link_constraint(
-                    "tcp",
-                    "world",
-                    [x, y, z],
-                    tolerance,
-                    [action[3], action[4], action[5], action[6]],
-                    tolerance,
-                )
-
-            # Pass the approach position to the move function
+            # Pass the goal position to the move function
             approached = self.go_to(approach_position)
 
-            # Increase the tolerance and try the approach again
-            tolerance += tolerance_increase
+            # Define the tolerance
+            tolerance = initial_tolerance + tolerance_increase
+
+            # Loop the following until the approach action succeeds or we reach the max retry attempts
+            while (not approached) and (tolerance <= max_tolerance):
+                # If an IK solution is found
+                if found_ik:
+                    # Reconstruct the joint goal with incrementally increasing tolerance
+                    approach_position = self.construct_joint_position(joint_angles, tolerance)
+
+                # # If an IK solution is not found
+                # if not found_ik:
+                #     # Redefine the lift position with an increased tolerance
+                #     approach_position = construct_link_constraint(
+                #         "tcp",
+                #         "world",
+                #         [x, y, z],
+                #         tolerance,
+                #         [action[3], action[4], action[5], action[6]],
+                #         tolerance,
+                #     )
+
+                # Pass the approach position to the move function
+                approached = self.go_to(approach_position)
+
+                # Increase the tolerance and try the approach again
+                tolerance += tolerance_increase
+
+        elif not found_ik:
+            self.get_logger().error("Could not find an IK solution for approach position")
+            approached = False
 
         return approached
 
@@ -699,48 +714,52 @@ class Utility(Node):
             joint_angles = self.robot_state.get_joint_group_positions("manipulator")
             lift_position = self.construct_joint_position(joint_angles, initial_tolerance)
 
-        # If an IK solution is not found
-        if not found_ik:
-            # Define the pose goal
-            lift_position = construct_link_constraint(
-                "tcp",
-                "world",
-                [pose.position.x, pose.position.y, pose.position.z],
-                initial_tolerance,
-                [pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w],
-                0.01,
-            )
-
-        # Pass the lift position to the move function
-        lifted = self.go_to(lift_position)
-
-        # Define the initial tolerance for the position constraint
-        tolerance = initial_tolerance + tolerance_increase
-
-        # Loop the following until the lift action succeeds or we reach the max retry attempts
-        while (not lifted) and (tolerance <= max_tolerance):
-            # If an IK solution is found
-            if found_ik:
-                # Reconstruct the joint goal with incrementally increasing tolerance
-                lift_position = self.construct_joint_position(joint_angles, tolerance)
-
-            # If an IK solution is not found
-            if not found_ik:
-                # Redefine the lift position with an increased tolerance
-                lift_position = construct_link_constraint(
-                    "tcp",
-                    "world",
-                    [pose.position.x, pose.position.y, pose.position.z],
-                    tolerance,
-                    [pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w],
-                    0.01,
-                )
+            # # If an IK solution is not found
+            # if not found_ik:
+            #     # Define the pose goal
+            #     lift_position = construct_link_constraint(
+            #         "tcp",
+            #         "world",
+            #         [pose.position.x, pose.position.y, pose.position.z],
+            #         initial_tolerance,
+            #         [pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w],
+            #         0.01,
+            #     )
 
             # Pass the lift position to the move function
             lifted = self.go_to(lift_position)
 
-            # Increase the tolerance and try the lift again
-            tolerance += tolerance_increase
+            # Define the initial tolerance for the position constraint
+            tolerance = initial_tolerance + tolerance_increase
+
+            # Loop the following until the lift action succeeds or we reach the max retry attempts
+            while (not lifted) and (tolerance <= max_tolerance):
+                # If an IK solution is found
+                if found_ik:
+                    # Reconstruct the joint goal with incrementally increasing tolerance
+                    lift_position = self.construct_joint_position(joint_angles, tolerance)
+
+                # If an IK solution is not found
+                if not found_ik:
+                    # Redefine the lift position with an increased tolerance
+                    lift_position = construct_link_constraint(
+                        "tcp",
+                        "world",
+                        [pose.position.x, pose.position.y, pose.position.z],
+                        tolerance,
+                        [pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w],
+                        0.01,
+                    )
+
+                # Pass the lift position to the move function
+                lifted = self.go_to(lift_position)
+
+                # Increase the tolerance and try the lift again
+                tolerance += tolerance_increase
+
+        elif not found_ik:
+            self.get_logger().error("Could not find an IK solution for lift position")
+            lifted = False
 
         return lifted
 
@@ -1170,7 +1189,7 @@ class Utility(Node):
         conveyor_pose = Pose()
         conveyor_pose.position.x = 0.545
         conveyor_pose.position.y = 0.0
-        conveyor_pose.position.z = 0.525
+        conveyor_pose.position.z = 0.52
         conveyor_pose.orientation.w = 1.0
         conveyor_collision.primitive_poses.append(conveyor_pose)
 

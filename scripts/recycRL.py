@@ -68,7 +68,7 @@ class RecycRL(object):
         self.total_it = 0  # Tracking variable for number of iterations
 
         # If the reward model has been saved previously, load the model
-        if os.path.exists(f"{model_path}/Reward_Model"):
+        if model_path != "" and os.path.exists(f"{model_path}/Reward_Model"):
             self.reward_model.load(model_path)
 
     def select_action(self, state, add_noise=False):
@@ -141,7 +141,61 @@ class RecycRL(object):
         loss.backward()  # Backpropagate the loss
         self.actor_optimizer.step()  # Update the parameters
 
-    def get_integral_scores(self, beta, states, actions, step, max_delta):
+    def train_for_buffalo(
+        self,
+        reward_model=None,
+        online=True,
+        alpha=0.75,
+        beta=0.75,
+        step=[0.001],
+        max_delta=[0.025],
+        print_iterations=100,
+    ):
+        # Increment the iteration tracking variable
+        self.total_it += 1
+
+        # Define state as a tensor of size 1 with value to 0 since buffalo only has one state
+        state = torch.tensor([[0.0]], device=device)
+
+        # Get the actor's/policy's action
+        action = self.actor(state)
+
+        # If we are training a policy online
+        if online:
+            # Assign the passed reward model to the policy's reward model
+            self.reward_model.reward_model = reward_model.to(device)
+            
+            # Get the score of the action
+            score = self.reward_model.reward_model(action)
+
+        # If we are training a policy offline with a learned reward model
+        elif not online:
+            # Pass states and actor's actions through the reward model to get the mean and variance of the expected reward
+            mean, std = self.reward_model.reward_model.predict(state, action)
+
+            # Get the score of the actions which is the lower confidence bound
+            score  = mean - beta * std
+
+        # Get the integral score for the base action
+        integral_score = alpha * self.get_integral_scores(beta, state, action, step, max_delta, online)
+
+        # Calculate the loss which is the expected reward plus the integral score
+        loss = -(score + integral_score)
+        # loss = -(integral_score)
+
+        # Print the loss after we have reached a multiple of 'print_iterations'
+        if self.total_it % print_iterations == 0:
+            print("Integral Score", integral_score.item())
+            print("LCB Score:", score.item())
+            print(f"Actor Loss: {loss.item()}")
+            print("")
+
+        # Optimize the actor
+        self.actor_optimizer.zero_grad()  # Clear old gradient
+        loss.backward()  # Backpropagate the loss
+        self.actor_optimizer.step()  # Update the parameters
+
+    def get_integral_scores(self, beta, states, actions, step, max_delta, online=False):
         # Get the batch size and action dimension size from the passed actions
         batch_size, action_dim = actions.shape
 
@@ -201,11 +255,16 @@ class RecycRL(object):
             .reshape(batch_size * 2 * max_steps * action_dim, -1)
         )
 
-        # Pass all of the perturbed actions with the corresponding states through the reward model
-        means, stds = self.reward_model.reward_model.predict(states_flat, all_actions_flat)
+        if online:
+            # Get the scores of the actions
+            scores = self.reward_model.reward_model(all_actions_flat)
 
-        # Calculate the score (LCB) for all of the perturbed actions and convert from (b * a, 1) -> (b, a)
-        scores = means - beta * stds
+        if not online:
+            # Pass all of the perturbed actions with the corresponding states through the reward model
+            means, stds = self.reward_model.reward_model.predict(states_flat, all_actions_flat)
+
+            # Calculate the score (LCB) for all of the perturbed actions and convert from (b * a, 1) -> (b, a)
+            scores = means - beta * stds
 
         # Convert scores from (2*b*m*a, 1) -> (b, 2*m, a)
         scores = scores.view(batch_size, 2 * max_steps, action_dim)
