@@ -12,12 +12,13 @@ from time import time
 import gymnasium as gym
 from ast import literal_eval
 import matplotlib.pyplot as plt
-from buffalo_gym import buffalo_gym # noqa: F401
+from buffalo_gym import buffalo_gym  # noqa: F401
 from argparse import ArgumentParser
 from rclpy.logging import get_logger
 from reward_model import RewardModel
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 
 def plot(
     model_path="~/Buffalo",
@@ -62,7 +63,7 @@ def plot(
 
     # If deterministic is set to True
     if deterministic:
-        # Set GPU/CUDA to the correponding seed for deterministic results
+        # Set GPU/CUDA to the corresponding seed for deterministic results
         torch.cuda.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
         torch.backends.cudnn.deterministic = True
@@ -87,12 +88,14 @@ def plot(
         true_reward_model = env.unwrapped.reward_model
         min_action = [env.unwrapped.left_shoulder]
         max_action = [env.unwrapped.right_shoulder]
-        
+
         # Plot reward comparisons
         xs = np.linspace(min_action, max_action, 1000)
         ys = true_reward_model(xs)
         plt.plot(xs, ys, label="True")
-        means, stds = reward_model.reward_model.predict(torch.zeros(1000, device=device).unsqueeze(1), torch.tensor(xs, dtype=torch.float32, device=device))
+        means, stds = reward_model.reward_model.predict(
+            torch.zeros(1000, device=device).unsqueeze(1), torch.tensor(xs, dtype=torch.float32, device=device)
+        )
         for beta in betas:
             rewards = (means - beta * stds).detach().cpu().numpy()
             plt.plot(xs, rewards, label=f"Approximate; β={beta}")
@@ -147,5 +150,5 @@ if __name__ == "__main__":
         shoulder_leakage=float(args.shoulder_leakage),
         predefined_polynomial=int(args.predefined_polynomial),
         state_dim=int(args.state_dim),
-        action_dim=int(args.action_dim)
+        action_dim=int(args.action_dim),
     )

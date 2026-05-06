@@ -33,7 +33,7 @@ def main(
     max_delta=[0.25],
     state_dim=1,
     action_dim=1,
-    model_path=""
+    model_path="",
 ):
     # Define logger
     logger = get_logger("test")
@@ -50,7 +50,7 @@ def main(
 
     # If deterministic is set to True
     if deterministic:
-        # Set GPU/CUDA to the correponding seed for deterministic results
+        # Set GPU/CUDA to the corresponding seed for deterministic results
         torch.cuda.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
         torch.backends.cudnn.deterministic = True
@@ -80,7 +80,7 @@ def main(
                 max_delta=max_delta,
                 state_dim=state_dim,
                 action_dim=action_dim,
-                model_path=model_path
+                model_path=model_path,
             )
             logger.info(f"{rl_path} finished training\n")
 
@@ -98,7 +98,7 @@ def main(
             predefined_polynomial=predefined_polynomial,
             state_dim=state_dim,
             action_dim=action_dim,
-            model_path=model_path
+            model_path=model_path,
         )
 
     # If there is an exception with the loop
@@ -117,13 +117,13 @@ if __name__ == "__main__":
     parser.add_argument(
         "-objectives",
         dest="objectives",
-        default="['PAR', 'PAR', 'PAR', 'PAR', 'PAR', 'PAR']",
+        default="['PAR', 'PAR', 'PAR']",
         help="List of objectives for policy ('PAR', 'REINFORCE', 'A2P')",
     )
     parser.add_argument(
         "-rl_paths",
         dest="rl_paths",
-        default="['~/Buffalo/5/Alpha=0.0', '~/Buffalo/5/Alpha=0.5', '~/Buffalo/5/Alpha=1.0', '~/Buffalo/5/Alpha=1.5', '~/Buffalo/5/Alpha=2.0', '~/Buffalo/5/Eta_Only']",
+        default="['~/Buffalo/5/Alpha=0.0', '~/Buffalo/5/Alpha=0.5', '~/Buffalo/5/Alpha=1.0']",
         help="Paths to load the RL models or actors",
     )
     parser.add_argument("-training_steps", dest="training_steps", default="2000", help="Number of training steps")
@@ -136,7 +136,7 @@ if __name__ == "__main__":
     parser.add_argument("-shoulders", dest="shoulders", default="True", help="")
     parser.add_argument("-shoulder_leakage", dest="shoulder_leakage", default="0.1", help="")
     parser.add_argument("-predefined_polynomial", dest="predefined_polynomial", default="1", help="")
-    parser.add_argument("-alphas", dest="alphas", default="[0.0, 0.5, 1.0, 1.5, 2.0, 1000.0]", help="")
+    parser.add_argument("-alphas", dest="alphas", default="[0.0, 0.5, 1.0]", help="")
     parser.add_argument("-step", dest="step", default="[0.01]", help="")
     parser.add_argument("-max_delta", dest="max_delta", default="[0.25]", help="")
     parser.add_argument("-state_dim", dest="state_dim", default="1", help="Dimension size of state")
@@ -163,5 +163,5 @@ if __name__ == "__main__":
         max_delta=literal_eval(args.max_delta),
         state_dim=int(args.state_dim),
         action_dim=int(args.action_dim),
-        model_path=args.model_path
+        model_path=args.model_path,
     )

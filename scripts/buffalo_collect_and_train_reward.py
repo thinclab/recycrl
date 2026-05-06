@@ -12,13 +12,14 @@ import numpy as np
 from time import time
 import gymnasium as gym
 from utils import Utility
-from buffalo_gym import buffalo_gym # noqa: F401
+from buffalo_gym import buffalo_gym  # noqa: F401
 from argparse import ArgumentParser
 from rclpy.logging import get_logger
 from reward_model import RewardModel
 from replay_buffer import ReplayBuffer
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 
 def collect_and_train(
     num_samples=200,
@@ -68,7 +69,7 @@ def collect_and_train(
 
     # If deterministic is set to True
     if deterministic:
-        # Set GPU/CUDA to the correponding seed for deterministic results
+        # Set GPU/CUDA to the corresponding seed for deterministic results
         torch.cuda.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
         torch.backends.cudnn.deterministic = True
@@ -91,7 +92,7 @@ def collect_and_train(
             shoulders=shoulders,
             shoulder_leakage=shoulder_leakage,
             predefined_polynomial=predefined_polynomial,
-            binary_reward=True
+            binary_reward=True,
         )
 
         # Reset the environment
@@ -190,5 +191,5 @@ if __name__ == "__main__":
         shoulder_leakage=float(args.shoulder_leakage),
         predefined_polynomial=int(args.predefined_polynomial),
         state_dim=int(args.state_dim),
-        action_dim=int(args.action_dim)
+        action_dim=int(args.action_dim),
     )

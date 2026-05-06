@@ -12,13 +12,14 @@ from time import time
 import gymnasium as gym
 from ast import literal_eval
 import matplotlib.pyplot as plt
-from buffalo_gym import buffalo_gym # noqa: F401
+from buffalo_gym import buffalo_gym  # noqa: F401
 from argparse import ArgumentParser
 from rclpy.logging import get_logger
 from reward_model import RewardModel
 from recycRL import RecycRL, REINFORCE, A2P
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 
 def plot(
     objectives=["PAR"],
@@ -55,7 +56,7 @@ def plot(
 
     # If deterministic is set to True
     if deterministic:
-        # Set GPU/CUDA to the correponding seed for deterministic results
+        # Set GPU/CUDA to the corresponding seed for deterministic results
         torch.cuda.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
         torch.backends.cudnn.deterministic = True
@@ -150,14 +151,18 @@ def plot(
         xs = np.linspace(min_action, max_action, 1000)
         ys = true_reward_model(xs)
         plt.plot(xs, ys, label="True")
-        means, stds = reward_model.reward_model.predict(torch.zeros(1000, device=device).unsqueeze(1), torch.tensor(xs, dtype=torch.float32, device=device))
+        means, stds = reward_model.reward_model.predict(
+            torch.zeros(1000, device=device).unsqueeze(1), torch.tensor(xs, dtype=torch.float32, device=device)
+        )
         for i, beta in enumerate(betas):
             rewards = (means - beta * stds).detach().cpu().numpy()
             plt.plot(xs, rewards, label=f"Approximate; β={beta}")
         for i, action in enumerate(actions):
             action = np.array([action])
             plt.scatter(action, env.unwrapped.reward_model(action), label=f"{labels[i]}, Beta={betas[i]}", alpha=0.5)
-            mean, std = reward_model.reward_model.predict(torch.tensor(np.array([[0]]), device=device), torch.tensor(action, device=device))
+            mean, std = reward_model.reward_model.predict(
+                torch.tensor(np.array([[0]]), device=device), torch.tensor(action, device=device)
+            )
             plt.scatter(action, (mean - betas[i] * std).detach().cpu().numpy(), label=f"{labels[i]}, Beta={betas[i]}", alpha=0.5)
         plt.xlabel("Action")
         plt.ylabel("Expected Reward")
@@ -191,7 +196,9 @@ if __name__ == "__main__":
         default="['~/Buffalo/Alpha=0.0', '~/Buffalo/Alpha=0.5', '~/Buffalo/Alpha=1.0']",
         help="Paths to load the RL models or actors",
     )
-    parser.add_argument("-reward_model_path", dest="reward_model_path", default="~/Buffalo", help="Path to save trained reward model")
+    parser.add_argument(
+        "-reward_model_path", dest="reward_model_path", default="~/Buffalo", help="Path to save trained reward model"
+    )
     parser.add_argument("-betas", dest="betas", default="[0.0, 0.50, 1.0]", help="Coefficients for reward model uncertainty")
     parser.add_argument("-seed", dest="seed", default="20", help="Seed for randomization and function generation")
     parser.add_argument("--not_deterministic", action="store_true", default=False, help="Turn deterministic optimization off")

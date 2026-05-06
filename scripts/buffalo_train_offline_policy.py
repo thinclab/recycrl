@@ -11,7 +11,7 @@ import numpy as np
 from time import time
 import gymnasium as gym
 from ast import literal_eval
-from buffalo_gym import buffalo_gym # noqa: F401
+from buffalo_gym import buffalo_gym  # noqa: F401
 from argparse import ArgumentParser
 from rclpy.logging import get_logger
 from recycRL import RecycRL, REINFORCE, A2P
@@ -57,7 +57,7 @@ def train(
 
     # If deterministic is set to True
     if deterministic:
-        # Set GPU/CUDA to the correponding seed for deterministic results
+        # Set GPU/CUDA to the corresponding seed for deterministic results
         torch.cuda.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
         torch.backends.cudnn.deterministic = True
@@ -207,5 +207,5 @@ if __name__ == "__main__":
         step=literal_eval(args.step),
         max_delta=literal_eval(args.max_delta),
         state_dim=int(args.state_dim),
-        action_dim=int(args.action_dim)
+        action_dim=int(args.action_dim),
     )

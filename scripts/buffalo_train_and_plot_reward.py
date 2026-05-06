@@ -46,7 +46,7 @@ def main(
 
     # If deterministic is set to True
     if deterministic:
-        # Set GPU/CUDA to the correponding seed for deterministic results
+        # Set GPU/CUDA to the corresponding seed for deterministic results
         torch.cuda.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
         torch.backends.cudnn.deterministic = True
@@ -72,7 +72,7 @@ def main(
             shoulder_leakage=shoulder_leakage,
             predefined_polynomial=predefined_polynomial,
             state_dim=state_dim,
-            action_dim=action_dim
+            action_dim=action_dim,
         )
 
         # Plot the approximate reward function with varying beta values against the true reward function
@@ -90,7 +90,7 @@ def main(
             shoulder_leakage=shoulder_leakage,
             predefined_polynomial=predefined_polynomial,
             state_dim=state_dim,
-            action_dim=action_dim
+            action_dim=action_dim,
         )
 
     # If there is an exception with the loop
@@ -150,5 +150,5 @@ if __name__ == "__main__":
         shoulder_leakage=float(args.shoulder_leakage),
         predefined_polynomial=int(args.predefined_polynomial),
         state_dim=int(args.state_dim),
-        action_dim=int(args.action_dim)
+        action_dim=int(args.action_dim),
     )

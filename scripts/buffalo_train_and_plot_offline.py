@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-This scripts automatically trains a reward model on randomly generated samples, then 
+This scripts automatically trains a reward model on randomly generated samples, then
 trains a number of policies on the reward model, and finally plots the results for comparison
 """
 
@@ -17,6 +17,7 @@ from buffalo_collect_and_train_reward import collect_and_train
 from buffalo_plot_offline_policies import plot as plot_policies
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 
 def main(
     num_samples=200,
@@ -56,7 +57,7 @@ def main(
 
     # If deterministic is set to True
     if deterministic:
-        # Set GPU/CUDA to the correponding seed for deterministic results
+        # Set GPU/CUDA to the corresponding seed for deterministic results
         torch.cuda.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
         torch.backends.cudnn.deterministic = True
@@ -82,7 +83,7 @@ def main(
             shoulder_leakage=shoulder_leakage,
             predefined_polynomial=predefined_polynomial,
             state_dim=state_dim,
-            action_dim=action_dim
+            action_dim=action_dim,
         )
 
         # Plot the approximate reward function with varying beta values against the true reward function
@@ -100,7 +101,7 @@ def main(
             shoulder_leakage=shoulder_leakage,
             predefined_polynomial=predefined_polynomial,
             state_dim=state_dim,
-            action_dim=action_dim
+            action_dim=action_dim,
         )
 
         # Loop through each policy
@@ -125,7 +126,7 @@ def main(
                 step=step,
                 max_delta=max_delta,
                 state_dim=state_dim,
-                action_dim=action_dim
+                action_dim=action_dim,
             )
 
         # PLot the converged policies from training with the true and approximate reward functions
@@ -160,8 +161,12 @@ if __name__ == "__main__":
     description = "This scripts automatically trains a reward model, then trains a number of policies, and plots the results"
     parser = ArgumentParser(description=description)
     parser.add_argument("-num_samples", dest="num_samples", default="200", help="Number of random samples to generate")
-    parser.add_argument("-reward_training_steps", dest="reward_training_steps", default="20000", help="Number of training steps for reward model")
-    parser.add_argument("-policy_training_steps", dest="policy_training_steps", default="2000", help="Number of training steps for policy")
+    parser.add_argument(
+        "-reward_training_steps", dest="reward_training_steps", default="20000", help="Number of training steps for reward model"
+    )
+    parser.add_argument(
+        "-policy_training_steps", dest="policy_training_steps", default="2000", help="Number of training steps for policy"
+    )
     parser.add_argument(
         "-objectives",
         dest="objectives",
@@ -180,7 +185,9 @@ if __name__ == "__main__":
         default="~/Buffalo/Explore_Buffer",
         help="Path to load and save the replay buffer with random samples",
     )
-    parser.add_argument("-reward_model_path", dest="reward_model_path", default="~/Buffalo", help="Path to save trained reward model")
+    parser.add_argument(
+        "-reward_model_path", dest="reward_model_path", default="~/Buffalo", help="Path to save trained reward model"
+    )
     parser.add_argument("-network_amount", dest="network_amount", default="5", help="Number of networks for reward model")
     parser.add_argument("-batch_size", dest="batch_size", default="100", help="Batch size for sampling from buffer")
     parser.add_argument("-betas", dest="betas", default="[0.0, 1.0, 2.0]", help="Coefficients for reward model uncertainty")
@@ -225,5 +232,5 @@ if __name__ == "__main__":
         step=literal_eval(args.step),
         max_delta=literal_eval(args.max_delta),
         state_dim=int(args.state_dim),
-        action_dim=int(args.action_dim)
+        action_dim=int(args.action_dim),
     )

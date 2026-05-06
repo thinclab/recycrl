@@ -36,7 +36,7 @@ def train(
     max_delta=[0.25],
     state_dim=1,
     action_dim=1,
-    model_path=""
+    model_path="",
 ):
     # Expand the user to handle "~"
     rl_path = os.path.expanduser(rl_path)
@@ -56,7 +56,7 @@ def train(
 
     # If deterministic is set to True
     if deterministic:
-        # Set GPU/CUDA to the correponding seed for deterministic results
+        # Set GPU/CUDA to the corresponding seed for deterministic results
         torch.cuda.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
         torch.backends.cudnn.deterministic = True
@@ -75,7 +75,7 @@ def train(
             shoulders=shoulders,
             shoulder_leakage=shoulder_leakage,
             predefined_polynomial=predefined_polynomial,
-            binary_reward=False
+            binary_reward=False,
         )
 
         # Get the reward model from the environment and define minimum and maximum action values based on shoulders
@@ -207,5 +207,5 @@ if __name__ == "__main__":
         max_delta=literal_eval(args.max_delta),
         state_dim=int(args.state_dim),
         action_dim=int(args.action_dim),
-        model_path=args.model_path
+        model_path=args.model_path,
     )

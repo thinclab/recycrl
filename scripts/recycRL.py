@@ -164,7 +164,7 @@ class RecycRL(object):
         if online:
             # Assign the passed reward model to the policy's reward model
             self.reward_model.reward_model = reward_model.to(device)
-            
+
             # Get the score of the action
             score = self.reward_model.reward_model(action)
 
@@ -174,7 +174,7 @@ class RecycRL(object):
             mean, std = self.reward_model.reward_model.predict(state, action)
 
             # Get the score of the actions which is the lower confidence bound
-            score  = mean - beta * std
+            score = mean - beta * std
 
         # Get the integral score for the base action
         integral_score = alpha * self.get_integral_scores(beta, state, action, step, max_delta, online)
