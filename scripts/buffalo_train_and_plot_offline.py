@@ -180,7 +180,9 @@ if __name__ == "__main__":
     )
     parser.add_argument("-batch_size", dest="batch_size", default="100", help="Batch size for sampling from buffer")
     parser.add_argument("-alpha", dest="alpha", default="0.5", help="Coefficient for robustness term")
-    parser.add_argument("-betas", dest="betas", default="[0.0, 1.0, 2.0, 3.0, 4.0, 5.0]", help="Coefficients for reward model uncertainty")
+    parser.add_argument(
+        "-betas", dest="betas", default="[0.0, 1.0, 2.0, 3.0, 4.0, 5.0]", help="Coefficients for reward model uncertainty"
+    )
     parser.add_argument("-initial_action", dest="initial_action", default=None, help="Sets bias in NN for first action")
     parser.add_argument("-seed", dest="seed", default="0", help="Seed for randomization and function generation")
     parser.add_argument("--not_deterministic", action="store_true", default=False, help="Turn deterministic optimization off")
@@ -192,6 +194,26 @@ if __name__ == "__main__":
     parser.add_argument("-max_delta", dest="max_delta", default="[0.25]", help="")
     parser.add_argument("-holes", dest="holes", default="[[0.0, 0.05]]", help="")
     args = parser.parse_args()
+
+    # holes = [[0.3, 0.4], [0.8, 0.9], [0.25, 0.275], [0.65, 0.75]]
+    # holes = [[0.15, 0.25], [0.425, 0.45], [0.55, 0.575], [0.75, 0.85]]
+    # holes = [[0.25, 0.35], [0.48, 0.52], [0.6, 0.65], [0.775, 0.825]]
+
+    # holes = [[-1.125, -1.075], [-0.2, -0.1], [0.7, 0.8], [0.2, 0.275]]
+    # holes = [[-1.0, -0.95], [-0.55, -0.45], [0.1, 0.2], [0.6, 0.675]]
+    # holes = [[-0.925, -0.875], [-0.6, -0.55], [0.275, 0.325], [0.5, 0.55]]
+
+    # holes = [[-1.25, -1.35], [-1, -0.8], [0.4, 0.6], [1.2, 1.3]]
+    # holes = [[-1.0, -0.95], [-0.55, -0.45], [0.1, 0.2], [0.6, 0.675]]
+    # holes = [[-1.2, -1.15], [-0.8, -0.7], [-0.1, 0.0], [0.4, 0.5]]
+
+    # holes = [[0.5, 0.55], [0.8, 0.95], [1.3, 1.4], [1.5, 1.7], [2.35, 2.6]]
+    # holes = [[0.2, 0.25], [0.45, 0.55], [1.2, 1.3], [2.1, 2.2]]
+    # holes = [[0.6, 0.7], [1.1, 1.2], [1.8, 1.9], [2.7, 2.8]]
+
+    # holes = [[0.1, 0.175], [0.285, 0.305], [0.39, 0.41], [0.59, 0.63], [0.76, 0.8]]
+    # holes = [[0.2, 0.275], [0.41, 0.44], [0.64, 0.69], [0.85, 0.89]]
+    # holes = [[0.25, 0.32], [0.48, 0.52], [0.6, 0.65], [0.72, 0.76]]
 
     # Call training function
     main(

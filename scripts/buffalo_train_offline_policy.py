@@ -76,7 +76,14 @@ def train(
         # If the user wants to optimize with the PAR objective
         if objective == "PAR":
             # Initialize the RecycRL Class
-            rl = RecycRL(state_dim=1, action_dim=1, min_action=min_action, max_action=max_action, model_path=reward_model_path, initial_action=initial_action)
+            rl = RecycRL(
+                state_dim=1,
+                action_dim=1,
+                min_action=min_action,
+                max_action=max_action,
+                model_path=reward_model_path,
+                initial_action=initial_action,
+            )
 
             # Define the search path
             search_path = rl_path + "/Policy"
@@ -84,7 +91,14 @@ def train(
         # If the user wants to optimize with the A2P objective
         elif objective == "A2P":
             # Initialize the A2P Class
-            rl = A2P(state_dim=1, action_dim=1, min_action=min_action, max_action=max_action, model_path=reward_model_path, initial_action=initial_action)
+            rl = A2P(
+                state_dim=1,
+                action_dim=1,
+                min_action=min_action,
+                max_action=max_action,
+                model_path=reward_model_path,
+                initial_action=initial_action,
+            )
 
             # Define the search path
             search_path = rl_path + "/Policy_A2P"
@@ -92,7 +106,14 @@ def train(
         # If the user wants to optimize with the NRMDP objective
         elif objective == "NRMDP":
             # Initialize the NRMDP Class
-            rl = NRMDP(state_dim=1, action_dim=1, min_action=min_action, max_action=max_action, model_path=reward_model_path, initial_action=initial_action)
+            rl = NRMDP(
+                state_dim=1,
+                action_dim=1,
+                min_action=min_action,
+                max_action=max_action,
+                model_path=reward_model_path,
+                initial_action=initial_action,
+            )
 
             # Define the search path
             search_path = rl_path + "/Policy_NRMDP"

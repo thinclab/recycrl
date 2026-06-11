@@ -1,8 +1,8 @@
+"""This script was AI generated to parse log files and extract performance metrics"""
+
 import os
 import numpy as np
 from collections import defaultdict
-
-"""This script was AI generated to parse log files and extract performance metrics"""
 
 BASE_DIR = os.path.expanduser("~/Buffalo/Online/3")
 # SUBFOLDERS = ["0.2", "0.4", "0.6", "0.8", "None"]
@@ -26,11 +26,7 @@ def parse_log(filepath):
         if line == "Experiments":
             continue
 
-        if (
-            line.startswith("PAR")
-            or line == "A2P"
-            or line == "NRMDP"
-        ):
+        if line.startswith("PAR") or line == "A2P" or line == "NRMDP":
             current_method = line
             continue
 

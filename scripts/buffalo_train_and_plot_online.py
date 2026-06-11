@@ -72,9 +72,9 @@ def main(
         if objective == "PAR":
             objective = f"PAR; α={alphas[i]}"
         elif objective == "A2P":
-            objective = f"A2P"
+            objective = "A2P"
         elif objective == "NRMDP":
-            objective = f"NRMDP"
+            objective = "NRMDP"
         rl_paths.append(f"{path}/{objective}")
 
     # Try the following

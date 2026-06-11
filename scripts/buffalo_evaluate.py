@@ -14,11 +14,20 @@ from buffalo_gym import buffalo_gym  # noqa: F401
 from rclpy.logging import get_logger
 from recycRL import RecycRL, A2P, NRMDP
 
+
 def evaluate(
     num_samples=1000,
     max_noise=0.25,
     objectives=["PAR", "PAR", "PAR", "PAR", "PAR", "A2P", "NRMDP"],
-    rl_paths=["~/Buffalo/1/0.2/PAR; α=0.0", "~/Buffalo/1/0.2/PAR; α=0.35", "~/Buffalo/1/0.2/PAR; α=0.5", "~/Buffalo/1/0.2/PAR; α=0.65", "~/Buffalo/1/0.2/PAR; α=1.0", "~/Buffalo/1/0.2/A2P", "~/Buffalo/1/0.2/NRMDP"],
+    rl_paths=[
+        "~/Buffalo/1/0.2/PAR; α=0.0",
+        "~/Buffalo/1/0.2/PAR; α=0.35",
+        "~/Buffalo/1/0.2/PAR; α=0.5",
+        "~/Buffalo/1/0.2/PAR; α=0.65",
+        "~/Buffalo/1/0.2/PAR; α=1.0",
+        "~/Buffalo/1/0.2/A2P",
+        "~/Buffalo/1/0.2/NRMDP",
+    ],
     seed=0,
     deterministic=True,
     degree=6,
@@ -122,8 +131,8 @@ def evaluate(
         noisy_rewards_list = []
 
         # Generate noise samples for each action
-        samples.append(np.random.normal(0, max_noise/3, num_samples).clip(-max_noise, max_noise))
-        samples.append(np.random.normal(0, max_noise/2, num_samples).clip(-max_noise, max_noise))
+        samples.append(np.random.normal(0, max_noise / 3, num_samples).clip(-max_noise, max_noise))
+        samples.append(np.random.normal(0, max_noise / 2, num_samples).clip(-max_noise, max_noise))
         samples.append(np.random.uniform(-max_noise, max_noise, num_samples))
 
         # Add preliminary data to the log file
@@ -136,7 +145,10 @@ def evaluate(
             noisy_actions_list = [(action + sample).clip(min_action, max_action) for action in actions]
 
             # Get the average reward for the noisy rewards of the base action
-            noisy_rewards = [env.unwrapped.reward_model(torch.tensor(noisy_actions).unsqueeze(1)).mean().item() for noisy_actions in noisy_actions_list]
+            noisy_rewards = [
+                env.unwrapped.reward_model(torch.tensor(noisy_actions).unsqueeze(1)).mean().item()
+                for noisy_actions in noisy_actions_list
+            ]
 
             # Append the noisy rewards to the list
             noisy_rewards_list.append(noisy_rewards)

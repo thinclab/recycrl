@@ -15,6 +15,7 @@ from buffalo_gym import buffalo_gym  # noqa: F401
 from rclpy.logging import get_logger
 from recycRL import RecycRL, A2P, NRMDP
 
+
 def plot(
     objectives=["PAR", "PAR", "PAR"],
     rl_paths=["~/Buffalo/5/Alpha=0.0", "~/Buffalo/5/Alpha=0.5", "~/Buffalo/5/Alpha=1.0"],

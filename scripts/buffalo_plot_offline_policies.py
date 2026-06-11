@@ -21,7 +21,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def plot(
     objectives=["PAR", "PAR", "PAR"],
-    rl_paths=['~/Buffalo/Alpha=0.0', '~/Buffalo/Alpha=0.5', '~/Buffalo/Alpha=1.0'],
+    rl_paths=["~/Buffalo/Alpha=0.0", "~/Buffalo/Alpha=0.5", "~/Buffalo/Alpha=1.0"],
     reward_model_path="~/Buffalo",
     betas=[0.0, 0.50, 1.0],
     seed=0,
@@ -94,7 +94,9 @@ def plot(
             # If the the current model is for the PAR objective
             if objectives[i] == "PAR":
                 # Initialize the RecycRL Class
-                rl = RecycRL(state_dim=1, action_dim=1, min_action=min_action, max_action=max_action, model_path=reward_model_path)
+                rl = RecycRL(
+                    state_dim=1, action_dim=1, min_action=min_action, max_action=max_action, model_path=reward_model_path
+                )
 
                 # Define the search path
                 search_path = rl_path + "/Policy"
@@ -164,7 +166,7 @@ def plot(
             approx_reward = (mean - betas[i] * std).detach().cpu().numpy()
             plt.scatter(action, approx_reward, label=f"{labels[i]}")
             with open(f"{'/'.join(rl_path.split('/')[:-1])}/log.txt", "a") as f:
-                f.write(f"Aproximate Reward: {approx_reward.item()}\n")
+                f.write(f"Approximate Reward: {approx_reward.item()}\n")
         plt.xlabel("Action")
         plt.ylabel("Expected Reward")
         plt.title("Expected Reward Comparisons")
