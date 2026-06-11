@@ -4,6 +4,7 @@
 This script automatically trains a number of policies and then plots the results for comparison
 """
 
+import os
 import torch
 import random
 import numpy as np
@@ -17,23 +18,18 @@ from buffalo_plot_online_policies import plot
 
 def main(
     objectives=["PAR"],
-    rl_paths=["~/Buffalo"],
-    training_steps=2000,
+    path="~/Buffalo/Online",
+    training_steps=400,
+    initial_action=None,
     seed=0,
     deterministic=True,
     degree=6,
-    std_deviation=0.1,
     coef_range=2,
     max_val=10,
-    shoulders=True,
-    shoulder_leakage=0.1,
     predefined_polynomial=1,
     alphas=[0.75],
     step=[0.01],
     max_delta=[0.25],
-    state_dim=1,
-    action_dim=1,
-    model_path="",
 ):
     # Define logger
     logger = get_logger("test")
@@ -56,6 +52,31 @@ def main(
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
 
+    # Expand user to handle "~"
+    path = os.path.expanduser(path)
+
+    # Determine function path
+    if predefined_polynomial:
+        function = predefined_polynomial
+    else:
+        function = f"Random_{int(time())}"
+
+    # Determine path
+    path = f"{path}/{function}/{initial_action}"
+
+    # Define empty list for RL paths
+    rl_paths = []
+
+    # Generate rl_paths
+    for i, objective in enumerate(objectives):
+        if objective == "PAR":
+            objective = f"PAR; α={alphas[i]}"
+        elif objective == "A2P":
+            objective = f"A2P"
+        elif objective == "NRMDP":
+            objective = f"NRMDP"
+        rl_paths.append(f"{path}/{objective}")
+
     # Try the following
     try:
         # Loop through each policy
@@ -65,22 +86,16 @@ def main(
                 training_steps=training_steps,
                 objective=objectives[i],
                 rl_path=rl_path,
+                initial_action=initial_action,
                 seed=seed,
                 deterministic=deterministic,
                 degree=degree,
-                std_deviation=std_deviation,
                 coef_range=coef_range,
                 max_val=max_val,
-                shoulders=shoulders,
-                shoulder_leakage=shoulder_leakage,
                 predefined_polynomial=predefined_polynomial,
-                binary_reward=False,
                 alpha=alphas[i],
                 step=step,
                 max_delta=max_delta,
-                state_dim=state_dim,
-                action_dim=action_dim,
-                model_path=model_path,
             )
             logger.info(f"{rl_path} finished training\n")
 
@@ -93,12 +108,7 @@ def main(
             degree=degree,
             coef_range=coef_range,
             max_val=max_val,
-            shoulders=shoulders,
-            shoulder_leakage=shoulder_leakage,
             predefined_polynomial=predefined_polynomial,
-            state_dim=state_dim,
-            action_dim=action_dim,
-            model_path=model_path,
         )
 
     # If there is an exception with the loop
@@ -117,51 +127,41 @@ if __name__ == "__main__":
     parser.add_argument(
         "-objectives",
         dest="objectives",
-        default="['PAR', 'PAR', 'PAR']",
-        help="List of objectives for policy ('PAR', 'REINFORCE', 'A2P')",
+        default="['PAR', 'PAR', 'PAR', 'PAR', 'PAR', 'A2P', 'NRMDP']",
+        help="List of objectives for policy ('PAR', 'REINFORCE', 'A2P', 'NRMDP')",
     )
     parser.add_argument(
-        "-rl_paths",
-        dest="rl_paths",
-        default="['~/Buffalo/5/Alpha=0.0', '~/Buffalo/5/Alpha=0.5', '~/Buffalo/5/Alpha=1.0']",
-        help="Paths to load the RL models or actors",
+        "-path",
+        dest="path",
+        default="~/Buffalo/Online",
+        help="Path to load the RL models or actors",
     )
-    parser.add_argument("-training_steps", dest="training_steps", default="2000", help="Number of training steps")
-    parser.add_argument("-seed", dest="seed", default="20", help="")
+    parser.add_argument("-training_steps", dest="training_steps", default="400", help="Number of training steps")
+    parser.add_argument("-initial_action", dest="initial_action", default=None, help="Sets bias in NN for first action")
+    parser.add_argument("-seed", dest="seed", default="0", help="")
     parser.add_argument("--not_deterministic", action="store_true", default=False, help="")
     parser.add_argument("-degree", dest="degree", default="6", help="")
-    parser.add_argument("-std_deviation", dest="std_deviation", default="0.1", help="")
     parser.add_argument("-coef_range", dest="coef_range", default="10", help="")
     parser.add_argument("-max_val", dest="max_val", default="10", help="")
-    parser.add_argument("-shoulders", dest="shoulders", default="True", help="")
-    parser.add_argument("-shoulder_leakage", dest="shoulder_leakage", default="0.1", help="")
     parser.add_argument("-predefined_polynomial", dest="predefined_polynomial", default="1", help="")
-    parser.add_argument("-alphas", dest="alphas", default="[0.0, 0.5, 1.0]", help="")
+    parser.add_argument("-alphas", dest="alphas", default="[0.0, 0.35, 0.5, 0.65, 1.0, 0.0, 0.0]", help="")
     parser.add_argument("-step", dest="step", default="[0.01]", help="")
     parser.add_argument("-max_delta", dest="max_delta", default="[0.25]", help="")
-    parser.add_argument("-state_dim", dest="state_dim", default="1", help="Dimension size of state")
-    parser.add_argument("-action_dim", dest="action_dim", default="1", help="Dimension size of action")
-    parser.add_argument("-model_path", dest="model_path", default="", help="")
     args = parser.parse_args()
 
     # Call the main function
     main(
         objectives=literal_eval(args.objectives),
-        rl_paths=literal_eval(args.rl_paths),
+        path=args.path,
         training_steps=int(args.training_steps),
+        initial_action=None if not args.initial_action else float(args.initial_action),
         seed=int(args.seed),
         deterministic=not bool(args.not_deterministic),
         degree=int(args.degree),
-        std_deviation=float(args.std_deviation),
         coef_range=float(args.coef_range),
         max_val=float(args.max_val),
-        shoulders=bool(args.shoulders),
-        shoulder_leakage=float(args.shoulder_leakage),
         predefined_polynomial=literal_eval(args.predefined_polynomial),
         alphas=literal_eval(args.alphas),
         step=literal_eval(args.step),
         max_delta=literal_eval(args.max_delta),
-        state_dim=int(args.state_dim),
-        action_dim=int(args.action_dim),
-        model_path=args.model_path,
     )

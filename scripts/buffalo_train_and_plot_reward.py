@@ -19,20 +19,14 @@ def main(
     training_steps=20000,
     explore_buffer_path="~/Buffalo/Explore_Buffer",
     model_path="~/Buffalo",
-    network_amount=5,
     batch_size=100,
-    betas=[0.0, 0.25, 0.50, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0],
+    betas=[0.0, 1.0, 2.0, 3.0, 4.0, 5.0],
     seed=0,
     deterministic=True,
     degree=6,
-    std_deviation=0.1,
     coef_range=2,
     max_val=10,
-    shoulders=True,
-    shoulder_leakage=0.1,
     predefined_polynomial=1,
-    state_dim=1,
-    action_dim=1,
 ):
     # If seed is -1
     if seed == -1:
@@ -60,37 +54,25 @@ def main(
             training_steps=training_steps,
             explore_buffer_path=explore_buffer_path,
             model_path=model_path,
-            network_amount=network_amount,
             batch_size=batch_size,
             seed=seed,
             deterministic=deterministic,
             degree=degree,
-            std_deviation=std_deviation,
             coef_range=coef_range,
             max_val=max_val,
-            shoulders=shoulders,
-            shoulder_leakage=shoulder_leakage,
             predefined_polynomial=predefined_polynomial,
-            state_dim=state_dim,
-            action_dim=action_dim,
         )
 
         # Plot the approximate reward function with varying beta values against the true reward function
         plot(
             model_path=model_path,
-            network_amount=network_amount,
             betas=betas,
             seed=seed,
             deterministic=deterministic,
             degree=degree,
-            std_deviation=std_deviation,
             coef_range=coef_range,
             max_val=max_val,
-            shoulders=shoulders,
-            shoulder_leakage=shoulder_leakage,
             predefined_polynomial=predefined_polynomial,
-            state_dim=state_dim,
-            action_dim=action_dim,
         )
 
     # If there is an exception with the loop
@@ -115,20 +97,14 @@ if __name__ == "__main__":
         help="Path to load and save the replay buffer with random samples",
     )
     parser.add_argument("-model_path", dest="model_path", default="~/Buffalo", help="Path to save trained reward model")
-    parser.add_argument("-network_amount", dest="network_amount", default="5", help="Number of networks for reward model")
     parser.add_argument("-batch_size", dest="batch_size", default="100", help="Batch size for buffer")
-    parser.add_argument("-betas", dest="betas", default="[0.0, 0.50, 1.0, 1.5, 2.0, 2.5, 3.0]", help="")
-    parser.add_argument("-seed", dest="seed", default="20", help="")
+    parser.add_argument("-betas", dest="betas", default="[0.0, 1.0, 2.0, 3.0, 4.0, 5.0]", help="")
+    parser.add_argument("-seed", dest="seed", default="0", help="")
     parser.add_argument("--not_deterministic", action="store_true", default=False, help="")
     parser.add_argument("-degree", dest="degree", default="6", help="")
-    parser.add_argument("-std_deviation", dest="std_deviation", default="0.1", help="")
     parser.add_argument("-coef_range", dest="coef_range", default="2", help="")
     parser.add_argument("-max_val", dest="max_val", default="10", help="")
-    parser.add_argument("-shoulders", dest="shoulders", default="True", help="")
-    parser.add_argument("-shoulder_leakage", dest="shoulder_leakage", default="0.1", help="")
     parser.add_argument("-predefined_polynomial", dest="predefined_polynomial", default="1", help="")
-    parser.add_argument("-state_dim", dest="state_dim", default="1", help="Dimension size of state")
-    parser.add_argument("-action_dim", dest="action_dim", default="1", help="Dimension size of action")
     args = parser.parse_args()
 
     # Call the main function
@@ -137,18 +113,12 @@ if __name__ == "__main__":
         training_steps=int(args.training_steps),
         explore_buffer_path=args.explore_buffer_path,
         model_path=args.model_path,
-        network_amount=int(args.network_amount),
         batch_size=int(args.batch_size),
         betas=literal_eval(args.betas),
         seed=int(args.seed),
         deterministic=not bool(args.not_deterministic),
         degree=int(args.degree),
-        std_deviation=float(args.std_deviation),
         coef_range=float(args.coef_range),
         max_val=float(args.max_val),
-        shoulders=bool(args.shoulders),
-        shoulder_leakage=float(args.shoulder_leakage),
         predefined_polynomial=int(args.predefined_polynomial),
-        state_dim=int(args.state_dim),
-        action_dim=int(args.action_dim),
     )

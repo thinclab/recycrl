@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-This script loads a number of policies and corresponding reward model and plots the actions on the reward function for comparison
+This script loads a number of policies and logs the rewards for the base actions and noisy actions for comparison
 """
 
 import os
@@ -10,14 +10,15 @@ import random
 import numpy as np
 from time import time
 import gymnasium as gym
-import matplotlib.pyplot as plt
 from buffalo_gym import buffalo_gym  # noqa: F401
 from rclpy.logging import get_logger
 from recycRL import RecycRL, A2P, NRMDP
 
-def plot(
-    objectives=["PAR", "PAR", "PAR"],
-    rl_paths=["~/Buffalo/5/Alpha=0.0", "~/Buffalo/5/Alpha=0.5", "~/Buffalo/5/Alpha=1.0"],
+def evaluate(
+    num_samples=1000,
+    max_noise=0.25,
+    objectives=["PAR", "PAR", "PAR", "PAR", "PAR", "A2P", "NRMDP"],
+    rl_paths=["~/Buffalo/1/0.2/PAR; α=0.0", "~/Buffalo/1/0.2/PAR; α=0.35", "~/Buffalo/1/0.2/PAR; α=0.5", "~/Buffalo/1/0.2/PAR; α=0.65", "~/Buffalo/1/0.2/PAR; α=1.0", "~/Buffalo/1/0.2/A2P", "~/Buffalo/1/0.2/NRMDP"],
     seed=0,
     deterministic=True,
     degree=6,
@@ -61,12 +62,13 @@ def plot(
             predefined_polynomial=predefined_polynomial,
         )
 
-        # DEfine the minimum and maximum action values based on shoulder values
+        # Define the minimum and maximum action values based on shoulder values
         min_action = [env.unwrapped.left_shoulder]
         max_action = [env.unwrapped.right_shoulder]
 
-        # Define list to hold actions of each loaded policy and labels
+        # Define lists
         actions = []
+        rewards = []
         labels = []
 
         # Loop through each rl path
@@ -97,6 +99,7 @@ def plot(
 
             # If the current model is for the invalid, notify the user and return
             elif objectives[i] != "PAR" and objectives[i] != "A2P" and objectives[i] != "NRMDP":
+                print(objectives[i])
                 logger.error("One or more objectives invalid")
                 return
 
@@ -105,8 +108,8 @@ def plot(
                 rl.load(rl_path)
                 action = rl.select_action([0])
                 actions.append(action)
-                label = rl_path.split("/")[-1]
-                labels.append(label)
+                rewards.append(env.unwrapped.reward_model(np.array([action])).item())
+                labels.append(rl_path.split("/")[-1])
 
             # If one of the RL models does not exist, notify the user and return
             elif not os.path.exists(search_path):
@@ -114,25 +117,41 @@ def plot(
                 logger.error("One or more RL models does not exist")
                 return
 
-        # Plot the policies
-        x = np.linspace(min_action, max_action, 1000)
-        y = env.unwrapped.reward_model(x)
-        plt.plot(x, y)
-        for i, action in enumerate(actions):
-            reward = env.unwrapped.reward_model(np.array([action]))
-            plt.scatter(action, reward, label=labels[i])
-        plt.xlabel("Action")
-        plt.ylabel("Reward")
-        plt.title("Reward Polynomial")
-        plt.legend()
-        plt.grid()
-        plt.savefig(f"{'/'.join(rl_path.split('/')[:-1])}/plot.png")
-        plt.show()
-        plt.close()
+        # Define empty lists for storage
+        samples = []
+        noisy_rewards_list = []
+
+        # Generate noise samples for each action
+        samples.append(np.random.normal(0, max_noise/3, num_samples).clip(-max_noise, max_noise))
+        samples.append(np.random.normal(0, max_noise/2, num_samples).clip(-max_noise, max_noise))
+        samples.append(np.random.uniform(-max_noise, max_noise, num_samples))
+
+        # Add preliminary data to the log file
+        with open(f"{'/'.join(rl_paths[0].split('/')[:-1])}/log.txt", "w") as f:
+            f.write("Experiments\n")
+
+        # Loop through each sample of noise
+        for sample in samples:
+            # Add the noise to the actions
+            noisy_actions_list = [(action + sample).clip(min_action, max_action) for action in actions]
+
+            # Get the average reward for the noisy rewards of the base action
+            noisy_rewards = [env.unwrapped.reward_model(torch.tensor(noisy_actions).unsqueeze(1)).mean().item() for noisy_actions in noisy_actions_list]
+
+            # Append the noisy rewards to the list
+            noisy_rewards_list.append(noisy_rewards)
+
+        # Log the results
+        with open(f"{'/'.join(rl_paths[0].split('/')[:-1])}/log.txt", "a") as f:
+            for j, rl_path in enumerate(rl_paths):
+                f.write(f"{rl_path.split('/')[-1]}\n")
+                f.write(f"Reward: {rewards[j]}\n")
+                for i in range(len(samples)):
+                    f.write(f"Noise {i+1}: {noisy_rewards_list[i][j]}\n")
 
     # If there is an exception with the loop
     except Exception as e:
-        print("\nPlot script failed: %r" % (e,))
+        print("\nEvaluate script failed: %r" % (e,))
 
     # If there is a Keyboard Interrupt
     except KeyboardInterrupt:
@@ -140,4 +159,4 @@ def plot(
 
 
 if __name__ == "__main__":
-    plot()
+    evaluate()
