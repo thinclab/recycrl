@@ -7,6 +7,7 @@ This script simplifies the process of loading the Replay Buffer and sampling dat
 import os
 import numpy as np
 from argparse import ArgumentParser
+from replay_buffer import ReplayBuffer  # noqa: F401
 
 
 def main():

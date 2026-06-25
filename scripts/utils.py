@@ -383,19 +383,27 @@ class Utility(Node):
 
         self.get_logger().info("Saved the replay buffer successfully")
 
-    def sample_from_buffers(self, expert_buffer, online_buffer, expert_batch_size=100, online_batch_size=100):
-        # Sample from each buffer the corresponding amount of samples
-        e_state, e_action, e_reward = expert_buffer.sample(expert_batch_size)
-        o_state, o_action, o_reward = online_buffer.sample(online_batch_size)
+    def sample_from_buffers(self, buffers, batch_sizes):
+        # Define empty lists
+        states, actions, rewards = [], [], []
+
+        # Loop through the buffers and batch sizes
+        for buffer, batch_size in zip(buffers, batch_sizes):
+            # Sample from the buffer
+            s, a, r = buffer.sample(batch_size)
+
+            # Append the values to lists
+            states.append(s)
+            actions.append(a)
+            rewards.append(r)
 
         # Combine the samples
-        state = torch.cat([e_state, o_state], dim=0)
-        action = torch.cat([e_action, o_action], dim=0)
-        reward = torch.cat([e_reward, o_reward], dim=0)
+        state = torch.cat(states, dim=0)
+        action = torch.cat(actions, dim=0)
+        reward = torch.cat(rewards, dim=0)
 
         return (state, action, reward)
 
-    # (JK) Better replanning for IK success but collision
     def go_to(self, position):
         # Define variables
         self.executed = False
@@ -648,18 +656,6 @@ class Utility(Node):
             joint_angles = self.robot_state.get_joint_group_positions("manipulator")
             approach_position = self.construct_joint_position(joint_angles, initial_tolerance)
 
-            # # If an IK solution is not found
-            # if not found_ik:
-            #     # Define the pose goal
-            #     approach_position = construct_link_constraint(
-            #         "tcp",
-            #         "world",
-            #         [x, y, z],
-            #         initial_tolerance,
-            #         [action[3], action[4], action[5], action[6]],
-            #         initial_tolerance,
-            #     )
-
             # Pass the goal position to the move function
             approached = self.go_to(approach_position)
 
@@ -672,18 +668,6 @@ class Utility(Node):
                 if found_ik:
                     # Reconstruct the joint goal with incrementally increasing tolerance
                     approach_position = self.construct_joint_position(joint_angles, tolerance)
-
-                # # If an IK solution is not found
-                # if not found_ik:
-                #     # Redefine the lift position with an increased tolerance
-                #     approach_position = construct_link_constraint(
-                #         "tcp",
-                #         "world",
-                #         [x, y, z],
-                #         tolerance,
-                #         [action[3], action[4], action[5], action[6]],
-                #         tolerance,
-                #     )
 
                 # Pass the approach position to the move function
                 approached = self.go_to(approach_position)
@@ -1196,14 +1180,14 @@ class Utility(Node):
         bar_pose = Pose()
         bar_pose.position.x = 0.4
         bar_pose.position.y = 0.0
-        bar_pose.position.z = 1.91
+        bar_pose.position.z = 1.81
         bar_pose.orientation.w = 1.0
         bar_collision.primitive_poses.append(bar_pose)
 
         cam_pose = Pose()
         cam_pose.position.x = 0.32
         cam_pose.position.y = 0.0
-        cam_pose.position.z = 1.86
+        cam_pose.position.z = 1.76
         cam_pose.orientation.w = 1.0
         cam_collision.primitive_poses.append(cam_pose)
 
@@ -1236,19 +1220,19 @@ class Utility(Node):
         self.planning_scene.process_collision_object(computer_collision)
         self.planning_scene.process_collision_object(ur_collision)
 
-    def get_last_state_amount(self, buffer):
-        index = buffer.size - 1
-        last_state = buffer.state[index]
+    def add_noise(self, action, magnitude):
+        # Determine the noise direction by the sign of the action
+        noise_direction = np.sign(action)
 
-        for i in range(1, buffer.size + 1):
-            laster_index = index - i
-            laster_state = buffer.state[laster_index]
-            if not np.array_equal(laster_state, last_state):
-                last_state_amount = index - laster_index
-                break
+        noise_direction[2] = 1.0
 
-        self.get_logger().info("Last State: " + str(last_state))
-        self.get_logger().info("Last State Amount: " + str(last_state_amount))
+        # Multiply the magnitude by the noise direction to get adversarial noise
+        noise = np.array(magnitude) * noise_direction
+
+        # Add the noise to the action
+        action += noise
+
+        return action
 
     def loop_check(self):
         # Print statement for looks

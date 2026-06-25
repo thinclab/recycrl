@@ -423,24 +423,41 @@ class YOLOService(Node):
         """Final Pose Calculation Loop"""
         # Loop through each centroid position with-respect-to the camera
         for i, centroid_position in enumerate(centroid_positions):
-            # Transform the 3D position of the centroid in camera frame to world frame, pass corresponding pitch and yaw
-            pose = self.transform_to_world(centroid_position, pitch_angles[i], yaw_angles[i])
-
             # Get the maximum height of the mask
-            max_height, _ = self.get_mask_max(depth_image, masks[i])
+            max_pose, _ = self.get_mask_max(depth_image, masks[i])
 
             # Append the current max height to the list in the response
-            response.heights.append(max_height)
+            response.heights.append(max_pose.position.z)
 
-            # If the pitch is -90 degrees (standing upright) or if the z position is too high
-            if pitch_angles[i] == -pi / 2 or pose.position.z > 0.9:
-                # The centroid is top of object, so set z position to be halfway between conveyor and top of object
-                pose.position.z = 0.75 + ((max_height - 0.75) / 2)
+            # If the pitch is greater than 60 degrees
+            if pitch_angles[i] < -(pi / 3):
+                # If the can is straight-up
+                # if pitch_angles[i] == -pi / 2 or pose.position.z > 0.9:
+                if pitch_angles[i] == -(pi / 2):
+                    # Transform the 3D position of the centroid in camera frame to world frame, pass corresponding pitch and yaw
+                    pose = self.transform_to_world(centroid_position, pitch_angles[i], yaw_angles[i])
 
-            # Add the 3D position and object angles to the corresponding response lists
-            response.positions.append(pose.position)
-            response.pitches.append(pitch_angles[i])
-            response.yaws.append(yaw_angles[i])
+                    # Add the 3D position and object angles to the corresponding response lists
+                    response.positions.append(pose.position)
+                    response.pitches.append(pitch_angles[i])
+                    response.yaws.append(yaw_angles[i])
+
+                # If the can is not straight-up
+                elif pitch_angles[i] != -(pi / 2):
+                    # Add the 3D position and object angles to the corresponding response lists
+                    response.positions.append(max_pose.position)
+                    response.pitches.append(pitch_angles[i])
+                    response.yaws.append(yaw_angles[i])
+
+            # If the pitch is less than 60 degrees
+            elif pitch_angles[i] >= -(pi / 3):
+                # Transform the 3D position of the centroid in camera frame to world frame, pass corresponding pitch and yaw
+                pose = self.transform_to_world(centroid_position, pitch_angles[i], yaw_angles[i])
+
+                # Add the 3D position and object angles to the corresponding response lists
+                response.positions.append(pose.position)
+                response.pitches.append(pitch_angles[i])
+                response.yaws.append(yaw_angles[i])
 
         # Assign the mask types to the service response
         response.types = [int(i) for i in prediction.boxes.cls.detach().cpu().tolist()]
@@ -481,7 +498,7 @@ class YOLOService(Node):
         min_point[1] = min_point[1] * (mask.shape[1] / self.depth_width)
         min_point[0] = min_point[0] * (mask.shape[0] / self.depth_height)
 
-        return pose.position.z, min_point
+        return pose, min_point
 
     def get_depth(self, depth_img, img_point, initial_box_width, box_increment, mode):
         # Define a depth variable in case no valid depths are extracted

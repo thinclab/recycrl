@@ -6,7 +6,7 @@ This script simplifies the process of loading the RL model and getting the actio
 
 import os
 from argparse import ArgumentParser
-from recycRL import RecycRL, REINFORCE, A2P
+from recycRL import RecycRL, A2P, NRMDP
 
 
 def main():
@@ -22,7 +22,7 @@ def main():
     parser.add_argument(
         "-objective",
         dest="objective",
-        default="Custom",
+        default="PAR",
         help="Objective used to optimize the policy",
     )
 
@@ -42,14 +42,6 @@ def main():
         # Define the search path
         search_path = rl_path + "/Policy"
 
-    # If the user wants to optimize with the REINFORCE objective
-    elif objective == "REINFORCE":
-        # Initialize the REINFORCE Class
-        rl = REINFORCE()
-
-        # Define the search path
-        search_path = rl_path + "/Policy_REINFORCE"
-
     elif objective == "A2P":
         # Initialize the A2P Class
         rl = A2P()
@@ -57,8 +49,16 @@ def main():
         # Define the search path
         search_path = rl_path + "/Policy_A2P"
 
+    # If the user wants to optimize with the NRMDP objective
+    elif objective == "NRMDP":
+        # Initialize the NRMDP Class
+        rl = NRMDP()
+
+        # Define the search path
+        search_path = rl_path + "/Policy_NRMDP"
+
     # If the user provides and invalid objective, notify the user and return
-    elif objective != "PAR" and objective != "REINFORCE" and objective != "A2P":
+    elif objective != "PAR" and objective != "A2P" and objective != "NRMDP":
         print("Objective invalid")
         return
 
@@ -66,6 +66,7 @@ def main():
     if os.path.exists(search_path):
         rl.load(rl_path)
         print("Policy ready")
+        print(rl.total_it)
 
     # If the RL model does not exist, notify the user and return
     elif not os.path.exists(search_path):

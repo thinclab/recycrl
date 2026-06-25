@@ -15,7 +15,7 @@ from ast import literal_eval
 from argparse import ArgumentParser
 from rclpy.logging import get_logger
 from replay_buffer import ReplayBuffer
-from recycRL import RecycRL, REINFORCE, A2P
+from recycRL import RecycRL, A2P, NRMDP
 
 
 def main():
@@ -23,23 +23,18 @@ def main():
     description = ""
     parser = ArgumentParser(description=description)
     parser.add_argument(
-        "-rl_path",
-        dest="rl_path",
+        "-path",
+        dest="path",
         default="~/RecycRL",
         help="Path to save and load the RL model or actor",
     )
     parser.add_argument(
         "-objective",
         dest="objective",
-        default="Custom",
+        default="PAR",
         help="Objective used to optimize the policy",
     )
-    parser.add_argument(
-        "-online_buffer_path",
-        dest="online_buffer_path",
-        default="~/RecycRL/Online_Buffer",
-        help="Path to load and save the replay buffer with online policy demonstrations",
-    )
+    parser.add_argument("-alpha", dest="alpha", default="1.0", help="Robustness coefficient")
     parser.add_argument("-state_dim", dest="state_dim", default="4", help="Dimension size of state")
     parser.add_argument("-action_dim", dest="action_dim", default="6", help="Dimension size of action")
     parser.add_argument(
@@ -57,48 +52,56 @@ def main():
     parser.add_argument(
         "-expl_noise",
         dest="expl_noise",
-        # default="[0.02, 0.02, 0.02, 0.10, 0.10, 0.10]",
-        default="[0.015, 0.015, 0.015, 0.075, 0.075, 0.075]",
-        # default="[0.01, 0.01, 0.01, 0.05, 0.05, 0.05]",
+        default="[0.02, 0.02, 0.02, 0.10, 0.10, 0.10]",
         help="Exploration noise standard deviation",
     )
     parser.add_argument(
         "-noise_clip",
         dest="noise_clip",
-        # default="[0.04, 0.04, 0.04, 0.20, 0.20, 0.20]",
         default="[0.03, 0.03, 0.03, 0.15, 0.15, 0.15]",
-        # default="[0.02, 0.02, 0.02, 0.10, 0.10, 0.10]",
         help="Maximum noise value",
     )
-
-    # Get a seed for the randomization of torch, numpy, and Pythons' random
-    # seed = int(time())
-    seed = 4
-    torch.manual_seed(seed)
-    np.random.seed(seed)
-    random.seed(seed)
-
-    # Use this for deterministic results
-    torch.cuda.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
+    parser.add_argument("-seed", dest="seed", default="0", help="")
+    parser.add_argument("--not_deterministic", action="store_true", default=False, help="")
 
     # Parse and assign arguments
     args = parser.parse_args()
-    rl_path = args.rl_path
+    path = args.path
+    alpha = float(args.alpha)
     objective = args.objective
-    online_buffer_path = args.online_buffer_path
     state_dim = int(args.state_dim)
     action_dim = int(args.action_dim)
     min_action = literal_eval(args.min_action)
     max_action = literal_eval(args.max_action)
     expl_noise = literal_eval(args.expl_noise)
     noise_clip = literal_eval(args.noise_clip)
+    seed = int(args.seed)
+    deterministic = not bool(args.not_deterministic)
 
-    # Expand the user to handle "~"
-    rl_path = os.path.expanduser(rl_path)
-    online_buffer_path = os.path.expanduser(online_buffer_path)
+    # If seed is -1
+    if seed == -1:
+        # Get a random seed
+        seed = int(time())
+
+    # Define seeds for torch, numpy, and python randomness generators
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+
+    # If deterministic is set to True
+    if deterministic:
+        # Set GPU/CUDA to the corresponding seed for deterministic results
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+
+    # Define paths and expand the user to handle "~"
+    if objective == "PAR":
+        rl_path = os.path.expanduser(path + f"/PAR; α={alpha}")
+    elif objective != "PAR":
+        rl_path = os.path.expanduser(path + f"/{objective}")
+    online_buffer_path = os.path.expanduser(rl_path + "/Online_Buffer")
 
     # Define loggers
     logger = get_logger("collect")
@@ -126,14 +129,6 @@ def main():
         # Define the search path
         search_path = rl_path + "/Policy"
 
-    # If the user wants to optimize with the REINFORCE objective
-    elif objective == "REINFORCE":
-        # Initialize the REINFORCE Class
-        rl = REINFORCE(state_dim, action_dim, min_action, max_action, expl_noise, noise_clip)
-
-        # Define the search path
-        search_path = rl_path + "/Policy_REINFORCE"
-
     elif objective == "A2P":
         # Initialize the A2P Class
         rl = A2P(state_dim, action_dim, min_action, max_action, expl_noise, noise_clip)
@@ -141,18 +136,27 @@ def main():
         # Define the search path
         search_path = rl_path + "/Policy_A2P"
 
+    # If the user wants to optimize with the NRMDP objective
+    elif objective == "NRMDP":
+        # Initialize the NRMDP Class
+        rl = NRMDP(state_dim, action_dim, min_action, max_action, expl_noise, noise_clip)
+
+        # Define the search path
+        search_path = rl_path + "/Policy_NRMDP"
+
     # If the user provides and invalid objective, notify the user and return
-    elif objective != "PAR" and objective != "REINFORCE" and objective != "A2P":
+    elif objective != "PAR" and objective != "A2P" and objective != "NRMDP":
         logger.error("Objective invalid")
         return
 
     # If the RL model has been saved previously, load the model
     if os.path.exists(search_path):
         rl.load(rl_path)
-        logger.info("Policy ready")
+        logger.info(f"Policy from '{rl_path}' ready")
 
     # If the RL model does not exist, notify the user and return
     elif not os.path.exists(search_path):
+        print(search_path)
         logger.error("Policy does not exist, provide correct path")
         return
 
@@ -160,9 +164,6 @@ def main():
     try:
         # Initialize the Utility Node
         collect = Utility(active=True)
-
-        # Get the number of times the last state consecutively appeared in the buffer
-        collect.get_last_state_amount(online_buffer)
 
         # Move the robot to the bin position so that the workspace can be seen clearly
         collect.go_to(collect.bin)
@@ -190,7 +191,8 @@ def main():
             collect.go_to(collect.home)
 
             # Pass the state through the actor network to get the action, add noise for exploration
-            action = rl.select_action(network_state, add_noise=True)
+            action = rl.select_action(network_state, add_noise=False)
+            # action = collect.add_noise(action, expl_noise)
 
             # print("Action after noise:", action)
 
